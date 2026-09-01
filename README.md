@@ -1,14 +1,18 @@
 # Fairway Ledger
 
+**Live: https://petersulak10.github.io/fairway-ledger/**
+
 A golf round tracker for you and your friends. One file, no build step, no
 accounts, no sign-in, nothing to pay for.
+
+Run it locally instead with:
 
 ```bash
 open "/Users/petersulak/Claude Code Tests/golf-tracker/index.html"
 ```
 
-That is the whole install. It also runs from any static host, and there is a
-published copy on claude.ai.
+Deploying is just pushing to `main` — GitHub Pages serves `index.html` straight
+from the repository root.
 
 ## What it does
 
