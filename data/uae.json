@@ -1,0 +1,912 @@
+[
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Abu Dhabi",
+  "club": "Abu Dhabi City Golf Club",
+  "course": "Championship",
+  "par": 70,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 134,
+    "cr": 70.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 134,
+    "cr": 70.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 134,
+    "cr": 70.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 131,
+    "cr": 72.1,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Abu Dhabi",
+  "club": "Abu Dhabi Golf Club",
+  "course": "National",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 141,
+    "cr": 76.2,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 136,
+    "cr": 73.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 130,
+    "cr": 71.1,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 131,
+    "cr": 73.8,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Abu Dhabi",
+  "club": "Abu Dhabi Golf Club",
+  "course": "Garden 10–27",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 138,
+    "cr": 74.5,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 134,
+    "cr": 73.2,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 127,
+    "cr": 69.4,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 126,
+    "cr": 71.6,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Abu Dhabi",
+  "club": "Abu Dhabi Golf Club",
+  "course": "Garden 19–27 twice",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 136,
+    "cr": 73.0,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 129,
+    "cr": 70.0,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 125,
+    "cr": 68.0,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 123,
+    "cr": 69.8,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Abu Dhabi",
+  "club": "Abu Dhabi Golf Club",
+  "course": "Mixed 19–9",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 139,
+    "cr": 74.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 135,
+    "cr": 71.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 128,
+    "cr": 69.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 127,
+    "cr": 71.8,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Al Ain",
+  "club": "Al Ain Equestrian, Shooting & Golf Club",
+  "course": "Championship",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 135,
+    "cr": 72.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 132,
+    "cr": 69.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 129,
+    "cr": 67.5,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 129,
+    "cr": 69.8,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Al Dhannah",
+  "club": "Al Dhanna Golf Club",
+  "course": "Championship",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 137,
+    "cr": 73.4,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 132,
+    "cr": 72.4,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 130,
+    "cr": 71.4,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 132,
+    "cr": 72.4,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Abu Dhabi",
+  "club": "Al Ghazal Golf Club",
+  "course": "Championship",
+  "par": 71,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 133,
+    "cr": 70.3,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 129,
+    "cr": 70.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 129,
+    "cr": 70.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 128,
+    "cr": 70.2,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Ras Al Khaimah",
+  "club": "Al Hamra Golf Club",
+  "course": "Championship",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 135,
+    "cr": 73.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 132,
+    "cr": 72.4,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 131,
+    "cr": 69.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 130,
+    "cr": 73.4,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Ajman",
+  "club": "Al Zorah Golf Club",
+  "course": "Championship",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 138,
+    "cr": 74.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 135,
+    "cr": 71.8,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 131,
+    "cr": 70.0,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 128,
+    "cr": 71.3,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Dubai",
+  "club": "Arabian Ranches Golf Club",
+  "course": "Championship",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 137,
+    "cr": 76.9,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 131,
+    "cr": 74.3,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 125,
+    "cr": 71.3,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 120,
+    "cr": 71.6,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Dubai",
+  "club": "Dubai Creek Golf & Yacht Club",
+  "course": "Championship",
+  "par": 71,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 136,
+    "cr": 73.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 135,
+    "cr": 73.0,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 128,
+    "cr": 70.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 125,
+    "cr": 71.2,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Dubai",
+  "club": "Dubai Hills Golf Club",
+  "course": "Championship",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 138,
+    "cr": 74.8,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 134,
+    "cr": 72.5,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 128,
+    "cr": 69.2,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 126,
+    "cr": 71.5,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Dubai",
+  "club": "Emirates Golf Club",
+  "course": "Faldo",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 135,
+    "cr": 74.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 133,
+    "cr": 72.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 129,
+    "cr": 70.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 124,
+    "cr": 70.8,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Dubai",
+  "club": "Emirates Golf Club",
+  "course": "Majlis",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 143,
+    "cr": 75.3,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 139,
+    "cr": 73.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 135,
+    "cr": 71.9,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 131,
+    "cr": 72.9,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Dubai",
+  "club": "JA The Resort Golf Course",
+  "course": "Championship",
+  "par": 70,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 136,
+    "cr": 69.1,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 132,
+    "cr": 66.8,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 132,
+    "cr": 66.8,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 127,
+    "cr": 68.2,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Dubai",
+  "club": "Jumeirah Golf Estates",
+  "course": "Earth",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 140,
+    "cr": 77.5,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 134,
+    "cr": 74.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 131,
+    "cr": 71.8,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 128,
+    "cr": 71.8,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Dubai",
+  "club": "Jumeirah Golf Estates",
+  "course": "Fire",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 136,
+    "cr": 75.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 130,
+    "cr": 74.1,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 125,
+    "cr": 71.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 121,
+    "cr": 72.5,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Dubai",
+  "club": "The Montgomerie Dubai",
+  "course": "Championship",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 135,
+    "cr": 75.5,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 132,
+    "cr": 71.9,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 128,
+    "cr": 69.3,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 126,
+    "cr": 70.4,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Abu Dhabi",
+  "club": "Saadiyat Beach Golf Club",
+  "course": "Championship",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 138,
+    "cr": 76.8,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 133,
+    "cr": 74.5,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 128,
+    "cr": 72.1,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 121,
+    "cr": 70.0,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Sharjah",
+  "club": "Sharjah Golf & Shooting Club",
+  "course": "Championship",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 135,
+    "cr": 74.3,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 132,
+    "cr": 72.4,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 132,
+    "cr": 72.4,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 130,
+    "cr": 71.8,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Dubai",
+  "club": "The Els Club Dubai",
+  "course": "Championship",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 138,
+    "cr": 75.7,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 133,
+    "cr": 72.5,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 125,
+    "cr": 70.0,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 123,
+    "cr": 70.4,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Dubai",
+  "club": "The Track, Meydan Golf",
+  "course": "Championship",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 139,
+    "cr": 75.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 135,
+    "cr": 73.4,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 125,
+    "cr": 69.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 128,
+    "cr": 71.8,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Ras Al Khaimah",
+  "club": "Tower Links Golf Club",
+  "course": "Championship",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 141,
+    "cr": 75.2,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 139,
+    "cr": 73.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 133,
+    "cr": 71.1,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 131,
+    "cr": 72.7,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Dubai",
+  "club": "Trump International Golf Club Dubai",
+  "course": "Championship",
+  "par": 71,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 133,
+    "cr": 73.6,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 129,
+    "cr": 72.0,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 125,
+    "cr": 70.0,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 119,
+    "cr": 68.4,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ },
+ {
+  "continent": "Asia",
+  "country": "United Arab Emirates",
+  "city": "Abu Dhabi",
+  "club": "Yas Links Abu Dhabi",
+  "course": "Championship",
+  "par": 72,
+  "tees": [
+   {
+    "name": "Back",
+    "slope": 143,
+    "cr": 76.1,
+    "gender": "Men"
+   },
+   {
+    "name": "Middle",
+    "slope": 139,
+    "cr": 74.9,
+    "gender": "Men"
+   },
+   {
+    "name": "Front",
+    "slope": 134,
+    "cr": 72.5,
+    "gender": "Men"
+   },
+   {
+    "name": "Ladies",
+    "slope": 129,
+    "cr": 72.0,
+    "gender": "Ladies"
+   }
+  ],
+  "source": "Emirates Golf Federation"
+ }
+]
