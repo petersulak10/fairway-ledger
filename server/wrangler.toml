@@ -1,0 +1,18 @@
+# Fairway Ledger — the site and its backend, deployed together.
+#
+#   dist/index.html  the app
+#   dist/_worker.js  the API (anything under /api/); everything else is
+#                    served straight from the assets by env.ASSETS
+name = "fairwayledger"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-01-01"
+
+# Created by:  npx wrangler d1 create fairway-ledger
+[[d1_databases]]
+binding = "DB"
+database_name = "fairway-ledger"
+database_id = "55d366ec-b38b-40dd-a108-3520af1f6b96"
+
+[vars]
+# The group's join code. Change it here, redeploy, and everyone re-enters it.
+JOIN_CODE = "links57"

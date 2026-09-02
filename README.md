@@ -90,29 +90,20 @@ with a date column and eighteen hole columns (`1…18`, `H1…H18` or
 and stroke indexes are a standard template, flagged in the app as "card
 unchecked". Correct them once and mark the course checked.
 
-## Sharing one ledger with friends
+## One shared scoreboard
 
-Settings → **Share with the group** gives you a link. Anyone who joins with it
-reads and writes the same scoreboard, and it merges per record, newest wins.
+The app is served by its own backend — a Cloudflare Pages project with a D1
+database — so there is a single shared database behind it. Everyone who opens
+the address and enters the group code sees the same players, rounds and course
+corrections. No links to pass around, no per-browser ledgers, and no split
+between Chrome and Safari.
 
-Two places that scoreboard can live:
+Your rounds are still kept on the device as well, which is what lets you score
+a round with no signal; it catches up the moment you have a connection again.
 
-**Your own server (recommended).** Deploy the Cloudflare Worker in `worker/` —
-free, about five minutes, no card — paste its address into
-Settings → *Keep it on your own server*, and the group lives on an endpoint you
-control, with an **Erase for everyone** button. See [worker/README.md](worker/README.md).
-
-**A free public store.** Leave that field empty and the group goes to
-jsonblob.com. Works with no setup, but it is a stranger's free service: no
-password, and I have not verified its retention policy.
-
-Either way the link is the credential — anyone holding it can read and edit, so
-send it by DM, not on a public page. Neither works inside the Claude artifact
-viewer, which allows no outside requests; use a hosted copy for sharing.
-
-What actually syncs: players (name, optional starting handicap), rounds and any
-course corrections. What never leaves the device: which player you are, the
-group link itself, and an unsaved card.
+The group code is the only lock. Anyone with it is in the group and is trusted
+inside it. Change it in `server/wrangler.toml` and redeploy to lock everyone
+out and back in. See [server/README.md](server/README.md).
 
 ## Files
 
@@ -125,7 +116,8 @@ group link itself, and an unsaved card.
 | `curated.py` | the hand-checked worldwide list |
 | `embed_data.py` | embeds `data/courses.psv` into `index.html` |
 | `data/` | the raw sources and the packed catalogue |
-| `worker/` | the optional Cloudflare Worker for group sync, and its guide |
+| `server/` | the backend: API, database schema and its guide |
+| `worker/` | the earlier standalone sync Worker, kept only for its wrangler install |
 
 Data lives in this browser's `localStorage`; the catalogue is read-only and
 anything you edit is stored separately as an override. Clearing site data erases
