@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fairway Ledger has moved</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600&display=swap">
+<style>
+:root{
+  --bg:#F3F6F1; --surface:#FFFFFF; --surface-2:#E8EEE6; --line:#D3DCD0;
+  --ink:#101E18; --ink-2:#34453C; --muted:#66776D; --accent:#0B5D4E;
+  --accent-2:#0E7A65; --accent-ink:#FFFFFF; --accent-wash:#E1EFEA;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0B1210; --surface:#121A16; --surface-2:#18231E; --line:#253229;
+    --ink:#E8EFE9; --ink-2:#C2CFC6; --muted:#8B9C92; --accent:#4FC2A1;
+    --accent-2:#6FD5B7; --accent-ink:#06211B; --accent-wash:#15302A;
+  }
+}
+*{box-sizing:border-box}
+body{
+  margin:0; min-height:100vh; background:var(--bg); color:var(--ink);
+  font-family:"Archivo",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  display:flex; align-items:center; justify-content:center; padding:24px; line-height:1.5;
+}
+.card{
+  background:var(--surface); border:1px solid var(--line); border-radius:14px;
+  padding:28px; max-width:520px; width:100%;
+  box-shadow:0 1px 2px rgba(16,30,24,.05),0 8px 24px -14px rgba(16,30,24,.2);
+}
+h1{font-family:"Fraunces","Iowan Old Style",Georgia,serif; font-size:26px; margin:0 0 6px; letter-spacing:-.02em}
+.sub{color:var(--muted); font-size:14px; margin:0 0 20px}
+p{margin:0 0 14px; font-size:14.5px; color:var(--ink-2)}
+.addr{
+  font-family:ui-monospace,"SF Mono",Menlo,monospace; font-size:13px;
+  background:var(--surface-2); padding:2px 6px; border-radius:5px; color:var(--ink);
+}
+.row{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:20px}
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:7px;
+  padding:11px 18px; border-radius:9px; cursor:pointer; border:1px solid var(--line);
+  background:var(--surface); color:var(--ink); font:inherit; font-size:14.5px;
+  font-weight:600; text-decoration:none;
+}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--accent); color:var(--accent-ink); border-color:transparent}
+.btn.primary:hover{background:var(--accent-2)}
+.note{
+  display:flex; gap:9px; margin-top:18px; padding:12px 14px; border-radius:9px;
+  background:var(--accent-wash); font-size:13px; color:var(--ink-2);
+}
+.count{font-weight:700; color:var(--ink)}
+#manual{display:none}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Fairway Ledger has moved</h1>
+  <p class="sub">The app now lives at <span class="addr">fairwayledger-1o6.pages.dev</span></p>
+  <div id="body"><p>Taking you there…</p></div>
+</div>
+
+<script>
+(function () {
+  var NEW_HOME = "https://fairwayledger-1o6.pages.dev/";
+  var MAX_URL = 1200000;                 /* well inside what browsers accept */
+  var body = document.getElementById("body");
+
+  function read(key) {
+    try { return JSON.parse(localStorage.getItem(key) || "null"); }
+    catch (e) { return null; }
+  }
+  function go(url) { location.replace(url); }
+
+  var state = read("fairway-ledger-v1");
+  var players = (state && state.players) || [];
+  var rounds = (state && state.rounds || []).filter(function (r) { return r && !r.deleted; });
+  var courses = (state && state.courses) || [];
+  var records = players.length + rounds.length;
+
+  /* Nothing saved here — just send them on. */
+  if (!records) { setTimeout(function () { go(NEW_HOME); }, 900); return; }
+
+  var payload = { players: players, rounds: (state && state.rounds) || [], courses: courses, meta: (state && state.meta) || {} };
+  var encoded = "";
+  try { encoded = encodeURIComponent(JSON.stringify(payload)); } catch (e) { encoded = ""; }
+
+  /* If the ledger is too big for a link, fall back to the backup file. */
+  if (!encoded || encoded.length > MAX_URL) {
+    payload.courses = [];
+    try { encoded = encodeURIComponent(JSON.stringify(payload)); } catch (e) { encoded = ""; }
+  }
+
+  var tooBig = !encoded || encoded.length > MAX_URL;
+
+  body.innerHTML =
+    '<p>You have <span class="count">' + players.length + ' player' + (players.length === 1 ? '' : 's') +
+      '</span> and <span class="count">' + rounds.length + ' round' + (rounds.length === 1 ? '' : 's') +
+      '</span> saved at this old address.</p>' +
+    (tooBig
+      ? '<p>That is more than a link can carry. Open the app here, use <b>Settings → Back up everything</b>, then <b>Restore a backup</b> at the new address.</p>' +
+        '<div class="row"><a class="btn primary" href="' + NEW_HOME + '">Go to the new address</a>' +
+        '<a class="btn" href="./app.html">Open the old one to back up</a></div>'
+      : '<p>Take them with you and they will be waiting at the new address. Nothing is deleted here either way.</p>' +
+        '<div class="row"><button class="btn primary" id="move">Take my rounds across</button>' +
+        '<a class="btn" href="' + NEW_HOME + '">Go without them</a></div>' +
+        '<div class="note"><span>Your rounds travel inside the link, which never reaches any server.</span></div>');
+
+  var move = document.getElementById("move");
+  if (move) {
+    move.addEventListener("click", function () {
+      move.disabled = true;
+      move.textContent = "Moving…";
+      go(NEW_HOME + "#import=" + encoded);
+    });
+  }
+})();
+</script>
+</body>
+</html>
