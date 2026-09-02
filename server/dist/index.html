@@ -21908,8 +21908,18 @@ const joinCode = () => (LOCAL.joinCode || "").trim();
 const syncOn = () => hasBackend() && !!joinCode();
 
 function apiHeaders(extra) {
-  return Object.assign({ "content-type": "application/json", "x-join-code": joinCode() }, extra || {});
+  const h = { "content-type": "application/json", "x-join-code": joinCode() };
+  if (LOCAL.token) h["x-player-token"] = LOCAL.token;
+  return Object.assign(h, extra || {});
 }
+
+/** The player this device is signed in as, if any. */
+const signedInAs = () => (LOCAL.token && LOCAL.me) ? LOCAL.me : null;
+const isClaimed = (p) => !!(p && p.claimed);
+const canEditPlayer = (id) => {
+  const p = playerById(id);
+  return !isClaimed(p) || signedInAs() === id;
+};
 
 /** Merge records in, newest wins, and drop anything the group deleted. */
 function mergeState(remote) {
@@ -21945,6 +21955,9 @@ async function syncNow(quiet) {
     if (res.status === 401) { LOCAL.joinCode = ""; saveDevice(); render(); return; }
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
+    if (Array.isArray(data.refused) && data.refused.length) {
+      toast("Some of that belongs to another player's card and was not saved.");
+    }
     mergeState(data);
     LOCAL.syncedAt = data.now || now();
     LOCAL.lastPull = now();
@@ -22069,6 +22082,9 @@ function ico(d, extra) {
   return '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" ' +
     'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
 }
+const LOCK = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px">' +
+  '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>';
 const ICONS = {
   flag:   ico('<path d="M5 21V4"/><path d="M5 5h11l-2 3.5L16 12H5"/>'),
   pencil: ico('<path d="M4 20h4l10-10a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M14.5 6.5l3 3"/>'),
@@ -22560,8 +22576,10 @@ function viewRound(id) {
   };
 
   return head(p ? p.name : "Round", fmtDate(r.date) + " · " + a.course.club + (a.course.course !== a.course.club ? " · " + a.course.course : "") + " · " + a.tee.name,
-    '<div class="row"><button class="btn" data-act="edit-round" data-id="' + r.id + '">Edit card</button>' +
-    '<button class="btn danger" data-act="delete-round" data-id="' + r.id + '">Delete</button></div>',
+    (canEditPlayer(r.playerId)
+      ? '<div class="row"><button class="btn" data-act="edit-round" data-id="' + r.id + '">Edit card</button>' +
+        '<button class="btn danger" data-act="delete-round" data-id="' + r.id + '">Delete</button></div>'
+      : '<span class="chip">' + LOCK + ' ' + esc((playerById(r.playerId) || {}).name || "another player") + '\'s card</span>'),
     backLink("/rounds", "Rounds")) +
 
     '<div class="grid g4" style="margin-bottom:14px">' +
@@ -22623,8 +22641,9 @@ function viewPlayer(id) {
   const maxBar = Math.max.apply(null, bars.map(b => b[1]).concat([1]));
 
   return head(p.name, plural(st.rounds, "round") + " · index " + hiLabel(st.index),
-    '<div class="row"><button class="btn" data-act="edit-player" data-id="' + p.id + '">Edit</button>' +
-    (LOCAL.me === p.id ? '' : '<button class="btn" data-act="set-me" data-id="' + p.id + '">This is me</button>') + '</div>',
+    '<div class="row">' +
+    (canEditPlayer(p.id) ? '<button class="btn" data-act="edit-player" data-id="' + p.id + '">Edit</button>' : '') +
+    (LOCAL.me === p.id ? '' : '<button class="btn" data-act="be-player" data-id="' + p.id + '">This is me</button>') + '</div>',
     backLink("/players", "Players")) +
 
     '<div class="hero">' +
@@ -22852,7 +22871,9 @@ function viewPlayers() {
             '<td class="n"><b>' + hiLabel(s.index != null ? s.index : p.startHi) + '</b></td>' +
             '<td class="n">' + s.rounds + '</td>' +
             '<td class="n ' + (s.avgToPar == null ? "" : parClass(s.avgToPar)) + '">' + (s.avgToPar == null ? "—" : relToPar(Math.round(s.avgToPar * 10) / 10)) + '</td>' +
-            '<td class="n"><button class="btn ghost sm" data-act="edit-player" data-id="' + p.id + '">Edit</button></td></tr>';
+            '<td class="n">' + (isClaimed(p) ? '<span class="chip" title="protected with a PIN">' + LOCK + '</span> ' : '') +
+            (canEditPlayer(p.id) ? '<button class="btn ghost sm" data-act="edit-player" data-id="' + p.id + '">Edit</button>' : '') +
+            '</td></tr>';
         }).join("") + '</tbody></table></div>'
       : '<div class="empty"><span>Nobody in the group yet.</span>' +
         '<button class="btn primary" data-act="add-player">Add the first player</button></div>') + '</div>';
@@ -22868,8 +22889,14 @@ function viewSettings() {
 
     '<div class="card card-pad stack">' +
       '<h2 class="sect-title">Playing as</h2>' +
-      '<div class="spread"><span class="small">' + (me ? 'Cards open on <b>' + esc(me.name) + '</b> first.' : 'Nobody selected yet.') + '</span>' +
-      '<button class="btn sm" data-act="pick-me">' + (me ? "Change" : "Choose") + '</button></div>' +
+      '<div class="spread"><span class="small">' +
+        (me ? 'Scoring as <b>' + esc(me.name) + '</b>' + (signedInAs() === me.id ? ' ' + LOCK : '') + '.' : 'Nobody chosen yet.') +
+        '</span>' +
+      '<div class="row-tight"><button class="btn sm" data-act="pick-me">' + (me ? "Change" : "Choose") + '</button>' +
+      (signedInAs() ? '<button class="btn sm ghost" data-act="sign-out">Sign out</button>' : '') + '</div></div>' +
+      (me && syncOn() && !isClaimed(me)
+        ? '<p class="help">' + esc(me.name) + '\'s card is not protected. <a href="#/settings" data-act="claim-me" data-id="' + me.id + '">Set a PIN</a> and only you can change it.</p>'
+        : '') +
     '</div>' +
 
     '<div class="card card-pad stack">' +
@@ -23143,6 +23170,39 @@ function inputField(id, label, value, placeholder) {
   return '<div class="field"><label for="' + id + '">' + esc(label) + '</label>' +
     '<input id="' + id + '" type="text" value="' + esc(value == null ? "" : value) + '" placeholder="' + esc(placeholder || "") + '" autocomplete="off"></div>';
 }
+async function apiPost(path, body) {
+  const res = await fetch(API + path, { method: "POST", headers: apiHeaders(), body: JSON.stringify(body || {}) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+  return data;
+}
+
+function signInModal(player) {
+  openModal("It's you",
+    '<p class="small">' + esc(player.name) + '\'s card is protected with a PIN. Enter it to score as ' + esc(player.name) + ' on this device.</p>' +
+    '<div class="field"><label for="pin-in">PIN</label>' +
+      '<input id="pin-in" type="password" inputmode="numeric" autocomplete="off" placeholder="••••"></div>' +
+    '<p class="help" id="pin-note">Forgotten it? Whoever set the group up can clear the PIN for you.</p>',
+    '<button class="btn" data-close="1">Cancel</button>' +
+    '<button class="btn primary" data-act="do-signin" data-id="' + player.id + '">Sign in</button>');
+}
+
+function claimModal(player) {
+  const isNew = !player;
+  openModal(isNew ? "Add a player" : "Make this your card",
+    (isNew
+      ? '<p class="small">Add yourself, or a friend who has not joined yet. A PIN makes the card yours — leave it empty and anyone in the group can keep that card, which is what you want for a friend who is not here.</p>' +
+        '<div class="field"><label for="cl-name">Name</label><input id="cl-name" type="text" autocomplete="off" placeholder="e.g. Tomas"></div>'
+      : '<p class="small">Nobody has claimed ' + esc(player.name) + ' yet. Set a PIN and only this device — and anyone you give the PIN to — can change that card and its rounds.</p>') +
+    '<div class="field"><label for="cl-pin">PIN' + (isNew ? ' (optional)' : '') + '</label>' +
+      '<input id="cl-pin" type="password" inputmode="numeric" autocomplete="off" placeholder="at least 4 digits"></div>' +
+    '<p class="help" id="cl-note">There is no way to recover a forgotten PIN, but the group can always clear it and start again.</p>',
+    '<button class="btn" data-close="1">Cancel</button>' +
+    (isNew ? '' : '<button class="btn" data-act="use-unclaimed" data-id="' + player.id + '">Use without a PIN</button>') +
+    '<button class="btn primary" data-act="do-claim" data-id="' + (player ? player.id : "") + '">' +
+      (isNew ? 'Add' : 'Make it mine') + '</button>');
+}
+
 function askForCode() {
   openModal("Join your group",
     '<p class="small">Fairway Ledger keeps one scoreboard for the whole group. Enter the code your group uses and this device joins it — you will not be asked again.</p>' +
@@ -23153,20 +23213,92 @@ function askForCode() {
     '<button class="btn primary" data-act="save-code">Join</button>');
 }
 
+function playerPill(p, act) {
+  return '<button class="pick" data-act="' + act + '" data-id="' + p.id + '" aria-pressed="' + (LOCAL.me === p.id) + '">' +
+    avatar(p) + esc(p.name) +
+    (isClaimed(p) ? ' <span class="tiny muted" title="protected with a PIN">' + LOCK + '</span>' : '') +
+    '</button>';
+}
+
 function pickMeModal() {
   openModal("Who are you?",
-    (S.players.length ? '<div class="pill-list">' + S.players.map(p =>
-      '<button class="pick" data-act="set-me" data-id="' + p.id + '" aria-pressed="' + (LOCAL.me === p.id) + '">' + avatar(p) + esc(p.name) + '</button>').join("") + '</div>'
-      : '<p class="small muted">No players yet.</p>') +
-    '<p class="help">This only decides whose card opens first on this device.</p>',
+    (S.players.length ? '<div class="pill-list">' + S.players.map(p => playerPill(p, "be-player")).join("") + '</div>'
+      : '<p class="small muted">Nobody in the group yet.</p>') +
+    '<p class="help">Pick your name to score as yourself. A ' + LOCK + ' means that card is protected with a PIN.</p>',
     '<button class="btn" data-act="add-player">Add someone new</button><button class="btn primary" data-close="1">Done</button>');
 }
 
 /* ---------- actions ---------- */
 const ACTIONS = {
   "pick-me": () => pickMeModal(),
+  "claim-me": (el) => { const p = playerById(el.dataset.id); if (p) claimModal(p); },
   "set-me": (el) => { LOCAL.me = el.dataset.id; saveDevice(); closeModal(); render(); },
-  "add-player": () => playerModal(null),
+
+  /* Becoming a player: a claimed card asks for its PIN, an open one offers to
+     become yours, and either way the choice sticks on this device. */
+  "be-player": (el) => {
+    const p = playerById(el.dataset.id);
+    if (!p) return;
+    if (!syncOn()) { LOCAL.me = p.id; saveDevice(); closeModal(); render(); return; }
+    if (isClaimed(p)) { signInModal(p); return; }
+    claimModal(p);
+  },
+  "use-unclaimed": (el) => {
+    LOCAL.me = el.dataset.id; LOCAL.token = ""; saveDevice(); closeModal(); render();
+  },
+  "do-signin": async (el) => {
+    const pin = ($("#pin-in") || {}).value || "";
+    const note = $("#pin-note");
+    el.disabled = true; el.textContent = "Checking…";
+    try {
+      const d = await apiPost("/signin", { playerId: el.dataset.id, pin });
+      LOCAL.token = d.token; LOCAL.me = d.playerId; saveDevice();
+      closeModal(); await syncNow(true); render();
+      toast("Signed in as " + (playerById(d.playerId) || {}).name);
+    } catch (e) {
+      el.disabled = false; el.textContent = "Sign in";
+      if (note) note.textContent = e.message === "wrong_pin"
+        ? "That PIN does not match. Try again."
+        : "Could not sign in just now — check your connection.";
+    }
+  },
+  "do-claim": async (el) => {
+    const pin = ($("#cl-pin") || {}).value || "";
+    const name = (($("#cl-name") || {}).value || "").trim();
+    const note = $("#cl-note");
+    const existing = el.dataset.id;
+    if (!existing && !name) { toast("A name is needed."); return; }
+
+    /* No PIN on a brand-new name just adds an open card for a friend. */
+    if (!existing && !pin) {
+      const p = touch({ id: "p_" + uid(), name, startHi: null, createdAt: now() });
+      S.players.push(p); closeModal(); commit(); schedulePush();
+      return;
+    }
+    if (pin.length < 4) {
+      if (note) note.textContent = "Use at least four digits.";
+      return;
+    }
+    el.disabled = true; el.textContent = "Saving…";
+    try {
+      const d = await apiPost("/claim", existing ? { playerId: existing, pin } : { name, pin });
+      LOCAL.token = d.token; LOCAL.me = d.playerId; LOCAL.syncedAt = 0; saveDevice();
+      closeModal(); await syncNow(true); render();
+      toast("This card is yours now");
+    } catch (e) {
+      el.disabled = false; el.textContent = existing ? "Make it mine" : "Add";
+      if (note) note.textContent = e.message === "already_claimed"
+        ? "Somebody claimed that name already. Pick another, or sign in with its PIN."
+        : e.message === "pin_too_short" ? "Use at least four digits."
+        : "Could not save that just now — check your connection.";
+    }
+  },
+  "sign-out": () => {
+    apiPost("/signout", {}).catch(() => {});
+    LOCAL.token = ""; saveDevice(); render();
+    toast("Signed out on this device");
+  },
+  "add-player": () => (syncOn() ? claimModal(null) : playerModal(null)),
   "edit-player": (el) => playerModal(playerById(el.dataset.id)),
   "save-player": (el) => {
     const name = $("#pl-name").value.trim();
