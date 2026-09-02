@@ -11,4 +11,4 @@ id = "746676e5df10412cb6e3e517bd580398"
 [vars]
 # Lock the endpoint to your own site once you are happy it works.
 # A comma-separated list; "*" allows any page.
-ALLOWED_ORIGIN = "https://petersulak10.github.io,http://localhost:8791"
+ALLOWED_ORIGIN = "https://fairwayledger-1o6.pages.dev,https://petersulak10.github.io,http://localhost:8791"

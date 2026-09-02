@@ -3,3 +3,4 @@ data/opengolfapi-us.csv
 data/courses.psv
 .bundle.js
 .DS_Store
+.pages-dist/
