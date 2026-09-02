@@ -22619,9 +22619,39 @@ function selectField(label, act, options, value, disabled) {
     options.map(o => '<option value="' + esc(o) + '"' + (o === value ? " selected" : "") + '>' + esc(o) + '</option>').join("") +
     '</select></div>';
 }
-function head(title, sub, right) {
-  return '<div class="page-head"><div><h1 class="page-title">' + esc(title) + '</h1>' +
+function head(title, sub, right, back) {
+  return (back || '') +
+    '<div class="page-head"><div><h1 class="page-title">' + esc(title) + '</h1>' +
     (sub ? '<p class="page-sub">' + sub + '</p>' : "") + '</div>' + (right || "") + '</div>';
+}
+
+/* ---------- going back ------------------------------------------------
+   A detail page always offers a way out. If you arrived from somewhere
+   inside the app it points back there by name — open a card from the
+   clubhouse and it says "Clubhouse", open it from the list and it says
+   "Rounds". Landing straight on the page (a shared link, a reload) falls
+   back to the section it belongs to.
+--------------------------------------------------------------------- */
+let PREV_ROUTE = null;
+
+function routeLabel(path) {
+  const top = "/" + (String(path || "").split("/").filter(Boolean)[0] || "");
+  const known = ROUTES.find(x => x.path === top);
+  return known ? known.label : "Back";
+}
+/** Only ever point back at a section, never at another detail page. */
+function isSection(path) {
+  return path != null && String(path).split("/").filter(Boolean).length <= 1;
+}
+function backLink(fallbackPath, fallbackLabel) {
+  const here = route().raw;
+  const usePrev = PREV_ROUTE && PREV_ROUTE !== here && isSection(PREV_ROUTE);
+  const path = usePrev ? PREV_ROUTE : fallbackPath;
+  const label = usePrev ? routeLabel(PREV_ROUTE) : fallbackLabel;
+  return '<a class="back" href="#' + esc(path) + '">' +
+    '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M15 5l-7 7 7 7"/></svg>' + esc(label) + '</a>';
 }
 </script>
 
@@ -22648,7 +22678,7 @@ function viewRounds() {
 /* ---------- view: one round, as a printed card ---------- */
 function viewRound(id) {
   const r = liveRounds().find(x => x.id === id);
-  if (!r) return head("Round not found", "It may have been deleted.") + '<a class="btn" href="#/rounds">Back to rounds</a>';
+  if (!r) return head("Round not found", "It may have been deleted.", "", backLink("/rounds", "Rounds"));
   const a = analyse(r);
   const p = playerById(r.playerId);
   const nine = a.holes.length === 9;
@@ -22683,7 +22713,8 @@ function viewRound(id) {
 
   return head(p ? p.name : "Round", fmtDate(r.date) + " · " + a.course.club + (a.course.course !== a.course.club ? " · " + a.course.course : "") + " · " + a.tee.name,
     '<div class="row"><button class="btn" data-act="edit-round" data-id="' + r.id + '">Edit card</button>' +
-    '<button class="btn danger" data-act="delete-round" data-id="' + r.id + '">Delete</button></div>') +
+    '<button class="btn danger" data-act="delete-round" data-id="' + r.id + '">Delete</button></div>',
+    backLink("/rounds", "Rounds")) +
 
     '<div class="grid g4" style="margin-bottom:14px">' +
       tile("Gross", a.gross == null ? "—" : a.gross, a.toPar == null ? "" : relToPar(a.toPar) + " to par") +
@@ -22728,7 +22759,7 @@ function mark(s, par) {
 /* ---------- view: one player ---------- */
 function viewPlayer(id) {
   const p = playerById(id);
-  if (!p) return head("Player not found") + '<a class="btn" href="#/players">Back</a>';
+  if (!p) return head("Player not found", "", "", backLink("/players", "Players"));
   const st = playerStats(id);
   const rs = sortBy(liveRounds().filter(r => r.playerId === id), r => r.date, "desc").map(analyse).filter(Boolean);
   const trendPts = st.trend.slice(-20).map(t => ({ y: t.hi, label: fmtDateShort(t.date), sub: t.analysis.course.club }));
@@ -22745,7 +22776,8 @@ function viewPlayer(id) {
 
   return head(p.name, plural(st.rounds, "round") + " · index " + hiLabel(st.index),
     '<div class="row"><button class="btn" data-act="edit-player" data-id="' + p.id + '">Edit</button>' +
-    (LOCAL.me === p.id ? '' : '<button class="btn" data-act="set-me" data-id="' + p.id + '">This is me</button>') + '</div>') +
+    (LOCAL.me === p.id ? '' : '<button class="btn" data-act="set-me" data-id="' + p.id + '">This is me</button>') + '</div>',
+    backLink("/players", "Players")) +
 
     '<div class="hero">' +
       '<div class="card hero-index"><span class="label">Handicap index</span>' +
@@ -22893,7 +22925,7 @@ function viewCourses() {
 
 function viewCourse(id) {
   const c = courseById(id);
-  if (!c) return head("Course not found") + '<a class="btn" href="#/courses">Back</a>';
+  if (!c) return head("Course not found", "", "", backLink("/courses", "Courses"));
   const par = coursePar(c, 18);
   primeDetail(id);
   const st = detailState.get(id);
@@ -22905,7 +22937,8 @@ function viewCourse(id) {
     (c.country === "Added by you" ? '<span class="chip">Added by you</span> ' : '') +
     crumbs.join(' <span class="sep">›</span> ') + '</span>',
     '<div class="row"><button class="btn" data-act="edit-course" data-id="' + c.id + '">Edit details</button>' +
-    (c.catalogue || CATALOG_BY_ID.has(c.id) ? '' : '<button class="btn danger" data-act="delete-course" data-id="' + c.id + '">Delete</button>') + '</div>') +
+    (c.catalogue || CATALOG_BY_ID.has(c.id) ? '' : '<button class="btn danger" data-act="delete-course" data-id="' + c.id + '">Delete</button>') + '</div>',
+    backLink("/courses", "Courses")) +
 
     (st === "loading"
       ? '<div class="notice info" style="margin-bottom:14px"><span>' + ICONS.info + '</span><span>Fetching the scorecard for this course…</span></div>'
@@ -23673,7 +23706,16 @@ function render() {
 }
 
 /* ---------- boot ---------- */
-window.addEventListener("hashchange", () => { window.scrollTo(0, 0); render(); });
+window.addEventListener("hashchange", (e) => {
+  try {
+    const from = "/" + (new URL(e.oldURL).hash || "#/").slice(1).replace(/^\/+/, "");
+    const to = route().raw;
+    /* only remember a real section, never the page you are standing on */
+    if (from !== to) PREV_ROUTE = from;
+  } catch (err) { /* first load */ }
+  window.scrollTo(0, 0);
+  render();
+});
 loadLocal();
 if (saveLocalSoon) saveLocal();
 render();
@@ -23711,5 +23753,23 @@ input[type="file"]::file-selector-button {
   font: inherit; font-weight: 600; margin-right: 10px; padding: 5px 11px;
   border-radius: 7px; border: 1px solid var(--line);
   background: var(--surface-2); color: var(--ink); cursor: pointer;
+}
+</style>
+
+<style>
+/* back control on detail pages */
+.back {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-bottom: 10px; padding: 5px 10px 5px 7px;
+  border-radius: 999px; border: 1px solid transparent;
+  color: var(--muted); text-decoration: none;
+  font-size: 13px; font-weight: 600; line-height: 1;
+  transition: background .14s ease, color .14s ease, border-color .14s ease;
+}
+.back:hover { background: var(--surface-2); color: var(--ink); border-color: var(--line); }
+.back svg { display: block; }
+.back:active { transform: translateX(-1px); }
+@media (max-width: 860px) {
+  .back { margin-left: -7px; padding-top: 7px; padding-bottom: 7px; font-size: 14px; }
 }
 </style>
