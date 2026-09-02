@@ -22275,7 +22275,7 @@ function viewPickMePrompt() {
   return '<div class="page-head"><div><h1 class="page-title">Who are you?</h1>' +
     '<p class="page-sub">Pick your name so this device shows your card first. You can change it any time.</p></div></div>' +
     '<div class="card card-pad stack" style="max-width:520px"><div class="pill-list">' +
-    S.players.map(p => '<button class="pick" data-act="set-me" data-id="' + p.id + '">' + avatar(p) + esc(p.name) + '</button>').join("") +
+    S.players.map(p => playerPill(p, "be-player")).join("") +
     '</div><div><button class="btn sm" data-act="add-player">Add someone new</button></div></div>';
 }
 </script>
@@ -22350,6 +22350,11 @@ function viewPlay() {
   const sel = d.pick || (course ? { ct: course.continent, co: course.country, ci: course.city } : {});
   d.pick = sel;
 
+  /* Opening a card with nobody playing looks broken, so start with you. */
+  if (!d.playerIds.length && LOCAL.me && playerById(LOCAL.me)) {
+    d.playerIds = [LOCAL.me]; d.active = LOCAL.me; ensureScores(d); saveDraft();
+  }
+
   const setup =
     '<div class="card card-pad stack">' +
       '<div class="spread"><h2 class="sect-title">The card</h2>' +
@@ -22407,8 +22412,9 @@ function viewPlay() {
       '<button class="btn ghost sm" data-act="add-player">Add player</button></div>' +
       (S.players.length ? '<div class="pill-list">' +
         S.players.map(p => '<button class="pick" data-act="toggle-player" data-id="' + p.id + '" aria-pressed="' + (d.playerIds.indexOf(p.id) >= 0) + '">' +
-          avatar(p) + esc(p.name) + '</button>').join("") + '</div>'
-        : '<p class="muted small">No players yet — add the group first.</p>') +
+          avatar(p) + esc(p.name) + '</button>').join("") + '</div>' +
+        (d.playerIds.length ? '' : '<p class="help">Tap everyone taking part — the scorecard appears once a course and at least one player are chosen.</p>')
+        : '<p class="muted small">Nobody in the group yet — add the players first.</p>') +
     '</div>';
 
   if (!course || !d.playerIds.length) {
@@ -22484,6 +22490,7 @@ function selectField(label, act, options, value, disabled) {
     '</select></div>';
 }
 function head(title, sub, right, back) {
+  if (back === undefined && route().top !== "/") back = backLink("/", "Clubhouse");
   return (back || '') +
     '<div class="page-head"><div><h1 class="page-title">' + esc(title) + '</h1>' +
     (sub ? '<p class="page-sub">' + sub + '</p>' : "") + '</div>' + (right || "") + '</div>';
