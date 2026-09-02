@@ -1,0 +1,14 @@
+name = "fairway-sync"
+main = "fairway-sync.js"
+compatibility_date = "2026-01-01"
+
+# Created by:  npx wrangler kv namespace create LEDGER
+# Paste the id it prints in place of PUT_YOUR_KV_ID_HERE.
+[[kv_namespaces]]
+binding = "LEDGER"
+id = "PUT_YOUR_KV_ID_HERE"
+
+[vars]
+# Lock the endpoint to your own site once you are happy it works.
+# Leave as "*" while testing.
+ALLOWED_ORIGIN = "*"

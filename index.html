@@ -21944,7 +21944,27 @@ async function push() {
     });
   } catch (e) { /* stays local; next change retries */ }
 }
+/** A 32-character group name that nobody could guess. */
+function newGroupId() {
+  const bytes = new Uint8Array(24);
+  (crypto || window.crypto).getRandomValues(bytes);
+  return btoa(String.fromCharCode.apply(null, bytes))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "").slice(0, 32);
+}
+
 async function createGroup() {
+  const own = (LOCAL.syncServer || "").trim().replace(/\/+$/, "");
+  if (own && location.protocol === "https:" && own.startsWith("http://")) throw new Error("insecure");
+  if (own) {
+    const url = own + "/g/" + newGroupId();
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ players: S.players, rounds: S.rounds, courses: S.courses, meta: S.meta })
+    });
+    if (!res.ok) throw new Error("server-" + res.status);
+    return url;
+  }
   const res = await fetch(JSONBLOB, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
@@ -21953,6 +21973,13 @@ async function createGroup() {
   const loc = res.headers.get("Location") || res.headers.get("location");
   if (!loc) throw new Error("no-location");
   return loc.replace(/^http:/, "https:");
+}
+
+/** Erase a group from your own server, for everybody. */
+async function destroyGroup() {
+  if (!syncOn() || !/\/g\/[A-Za-z0-9_-]{20,}$/.test(LOCAL.sync.url)) return false;
+  const res = await fetch(LOCAL.sync.url, { method: "DELETE" });
+  return res.ok;
 }
 
 
@@ -22981,11 +23008,18 @@ function viewSettings() {
             '<input type="text" readonly value="' + esc(LOCAL.sync.url) + '" data-act="select-all" aria-label="Your group link">' +
             '<div class="row"><button class="btn sm" data-act="copy-sync">Copy the link</button>' +
             '<button class="btn sm" data-act="sync-now">Check for new rounds</button>' +
-            '<button class="btn sm danger" data-act="leave-sync">Leave the group</button></div>' +
+            '<button class="btn sm danger" data-act="leave-sync">Leave the group</button>' +
+            (/\/g\/[A-Za-z0-9_-]{20,}$/.test(LOCAL.sync.url)
+              ? '<button class="btn sm danger" data-act="destroy-group">Erase for everyone</button>' : '') +
+            '</div>' +
             '<p class="help">Last updated ' + (LOCAL.lastPull ? new Date(LOCAL.lastPull).toLocaleTimeString() : "not yet") + '. Anyone with the link can see and add rounds, so send it only to your group.</p></div>'
           : '<div class="stack-sm"><p class="small muted">Keep one scoreboard for the whole group — no accounts, no sign-in. You get a link to send round; the link is what lets people in, so send it only to your golf group.</p>' +
             '<div class="row"><button class="btn primary" data-act="create-sync">Start a group</button>' +
-            '<button class="btn" data-act="join-sync">Join a group</button></div></div>') +
+            '<button class="btn" data-act="join-sync">Join a group</button></div>' +
+            '<div class="field" style="margin-top:6px"><label for="sy-server">Keep it on your own server (optional)</label>' +
+              '<input id="sy-server" type="text" placeholder="https://fairway-sync.yourname.workers.dev" value="' + esc(LOCAL.syncServer || "") + '" data-act="sync-server" autocomplete="off">' +
+              '<span class="help">Leave this empty and the group lives on a free public store. Put your own address here and it lives on your server instead, where you can erase it whenever you like.</span>' +
+            '</div></div>') +
     '</div>' +
 
     '<div class="card card-pad stack">' +
@@ -23491,6 +23525,16 @@ const ACTIONS = {
       toast("Your group is ready — send the link to your friends.");
     } catch (e) {
       render();
+      if (e && e.message === "insecure") {
+        openModal("That address will not work", '<p class="small">This site is served securely, so the group server has to start with <b>https://</b> too. Your Cloudflare address does — check for a stray <b>http://</b>.</p>',
+          '<button class="btn primary" data-close="1">Got it</button>');
+        return;
+      }
+      if (e && String(e.message).startsWith("server-")) {
+        openModal("Your server said no", '<p class="small">The address answered, but not the way the app expects (' + esc(e.message.slice(7)) + '). Check that the address is the Worker itself, with no path after it.</p>',
+          '<button class="btn primary" data-close="1">Got it</button>');
+        return;
+      }
       openModal("Sharing is not available here", '<p class="small">This copy of the app cannot set up a shared scoreboard. Open the web version and try again there — everything you have logged on this device can be brought across from Settings.</p>' +
         '<p class="small muted">Already have a link from someone else? Use <b>Join a group</b>.</p>',
         '<button class="btn primary" data-close="1">Understood</button>');
@@ -23516,6 +23560,15 @@ const ACTIONS = {
     LOCAL.sync = null; saveDevice(); render();
   },
   "sync-now": () => pull(),
+  "sync-server": (el) => { LOCAL.syncServer = el.value.trim(); saveDevice(); },
+  "destroy-group": async () => {
+    if (!confirm("Erase this group from your server? Every player loses the shared scoreboard. Your own rounds stay on this device.")) return;
+    try {
+      const ok = await destroyGroup();
+      LOCAL.sync = null; saveDevice(); render();
+      toast(ok ? "The group was erased" : "Could not reach your server — sharing switched off here");
+    } catch (e) { toast("Could not reach your server."); }
+  },
   "copy-sync": async () => {
     try { await navigator.clipboard.writeText(LOCAL.sync.url); toast("Link copied"); }
     catch (e) { toast("Select the link and copy it yourself."); }
@@ -23575,7 +23628,7 @@ document.addEventListener("change", (e) => {
 document.addEventListener("input", (e) => {
   const el = actionTarget(e);
   if (!el) return;
-  const live = ["score", "putts", "course-search", "play-search", "course-par", "course-si"];
+  const live = ["score", "putts", "course-search", "play-search", "course-par", "course-si", "sync-server"];
   if (live.indexOf(el.dataset.act) >= 0) ACTIONS[el.dataset.act](el, e);
 });
 document.addEventListener("keydown", (e) => {

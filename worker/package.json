@@ -1,0 +1,17 @@
+{
+  "name": "fairway-sync",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker holding one golf group ledger in Workers KV",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "wrangler": "^4.128.0"
+  },
+  "private": true
+}

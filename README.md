@@ -92,16 +92,27 @@ unchecked". Correct them once and mark the course checked.
 
 ## Sharing one ledger with friends
 
-Settings → **Share with the group** creates a shared JSON document at
-jsonblob.com (no account, no key) and gives you a link. Anyone who joins with
-that link reads and writes the same ledger.
+Settings → **Share with the group** gives you a link. Anyone who joins with it
+reads and writes the same scoreboard, and it merges per record, newest wins.
 
-- **The link is the key** — anyone holding it can read and edit.
-- **It cannot run inside the Claude artifact viewer**, which blocks outside
-  network calls. Use a self-hosted copy for group sync.
-- Not tested end to end against the live service — that would have published
-  data to a third-party host without asking. Your first "Create a group link"
-  will confirm it.
+Two places that scoreboard can live:
+
+**Your own server (recommended).** Deploy the Cloudflare Worker in `worker/` —
+free, about five minutes, no card — paste its address into
+Settings → *Keep it on your own server*, and the group lives on an endpoint you
+control, with an **Erase for everyone** button. See [worker/README.md](worker/README.md).
+
+**A free public store.** Leave that field empty and the group goes to
+jsonblob.com. Works with no setup, but it is a stranger's free service: no
+password, and I have not verified its retention policy.
+
+Either way the link is the credential — anyone holding it can read and edit, so
+send it by DM, not on a public page. Neither works inside the Claude artifact
+viewer, which allows no outside requests; use a hosted copy for sharing.
+
+What actually syncs: players (name, optional starting handicap), rounds and any
+course corrections. What never leaves the device: which player you are, the
+group link itself, and an unsaved card.
 
 ## Files
 
@@ -114,6 +125,7 @@ that link reads and writes the same ledger.
 | `curated.py` | the hand-checked worldwide list |
 | `embed_data.py` | embeds `data/courses.psv` into `index.html` |
 | `data/` | the raw sources and the packed catalogue |
+| `worker/` | the optional Cloudflare Worker for group sync, and its guide |
 
 Data lives in this browser's `localStorage`; the catalogue is read-only and
 anything you edit is stored separately as an override. Clearing site data erases
