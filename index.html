@@ -23748,6 +23748,8 @@ function acceptHandover() {
 
 loadLocal();
 const handedOver = acceptHandover();
+/* one player and nobody chosen: there is nothing to ask about */
+if (!LOCAL.me && S.players.length === 1) { LOCAL.me = S.players[0].id; saveDevice(); }
 if (saveLocalSoon) saveLocal();
 render();
 if (handedOver > 0) toast("Brought " + handedOver + " of your records across");
