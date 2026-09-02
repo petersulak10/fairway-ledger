@@ -98,15 +98,15 @@ def add(continent, country, city, club, course, holes, par, pars, sis, tees, src
         records[key] = rec
 
 # ---- 1. UAE, official Emirates Golf Federation ratings -----------------------
-if os.path.exists('data/uae.json'):
-    for r in json.load(open('data/uae.json')):
+if os.path.exists('uae.json'):
+    for r in json.load(open('uae.json')):
         add(r['continent'], r['country'], r['city'], r['club'], r['course'], 18, r['par'],
             None, None, r['tees'], 'egf')
 
 # ---- 2. US, OpenGolfAPI harvest (real tees + hole cards) ---------------------
 harvested = set()
-if os.path.exists('data/us-courses.ndjson'):
-    for line in open('data/us-courses.ndjson'):
+if os.path.exists('us-courses.ndjson'):
+    for line in open('us-courses.ndjson'):
         r = json.loads(line)
         harvested.add(r['id'])
         pars = [h.get('par') for h in r['holes']] if r['holes'] else r['csv_par']
@@ -124,13 +124,29 @@ if os.path.exists('data/us-courses.ndjson'):
             r['holes_n'] or 18, r['par'], pars, sis, tees, 'oga')
 
 # ---- 3. US, the rest of the ODbL bulk file (names + pars) -------------------
-if os.path.exists('data/opengolfapi-us.csv'):
-    for r in csv.DictReader(open('data/opengolfapi-us.csv')):
+if os.path.exists('og-us.csv'):
+    for r in csv.DictReader(open('og-us.csv')):
         if r['id'] in harvested: continue
         pars = [r.get(f'hole_{i}_par') for i in range(1, 19)]
         sis  = [r.get(f'hole_{i}_hcp') for i in range(1, 19)]
         add('North America', 'United States', r['city'] or US_STATE.get(r['state'], '—'),
             r['name'], 'Main', r['holes'] or 18, r['par'], pars, sis, [], 'odbl')
+
+# ---- 3b. Slovakia, the full Slovak Golf Association register ---------------
+try:
+    from slovakia import SLOVAKIA
+    for club, course, city, holes, par in SLOVAKIA:
+        add('Europe', 'Slovakia', city, club, course, holes, par, None, None, [], 'skga')
+except ImportError:
+    pass
+
+# ---- 3c. Czechia, the full Czech Golf Federation register -----------------
+try:
+    from czechia import CZECHIA
+    for club, course, city, region, holes, par, rated in CZECHIA:
+        add('Europe', 'Czechia', city, club, course, holes, par, None, None, [], 'cgf')
+except ImportError:
+    pass
 
 # ---- 4. Curated worldwide list (locations + par; no invented ratings) ------
 try:
@@ -141,8 +157,8 @@ except ImportError:
     pass
 
 # ---- 5. Worldwide names from OpenStreetMap (Latin-script names only) -------
-if os.path.exists('data/osm-courses.ndjson'):
-    for line in open('data/osm-courses.ndjson'):
+if os.path.exists('osm-courses.ndjson'):
+    for line in open('osm-courses.ndjson'):
         blk = json.loads(line)
         cc = blk['cc']
         if cc == 'US': continue
@@ -160,11 +176,11 @@ if os.path.exists('data/osm-courses.ndjson'):
 
 lines = ['|'.join(v[:11]) for v in records.values()]
 lines.sort()
-open('data/courses.psv', 'w', encoding='utf-8').write('\n'.join(lines))
+open('courses.psv', 'w', encoding='utf-8').write('\n'.join(lines))
 srcs = {}
 for v in records.values(): srcs[v[11]] = srcs.get(v[11], 0) + 1
 print('courses:', len(lines))
 print('by source:', srcs)
 print('with real ratings:', sum(1 for v in records.values() if 'r' in v[10]))
 print('with real hole card:', sum(1 for v in records.values() if 'c' in v[10]))
-print('size:', round(os.path.getsize('data/courses.psv') / 1048576, 2), 'MB')
+print('size:', round(os.path.getsize('courses.psv') / 1048576, 2), 'MB')
