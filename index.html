@@ -15014,7 +15014,7 @@ function unpackCourse(rec) {
              slope: slope ? +slope : null, yards: yards ? +yards : null,
              gender: g === "F" ? "Ladies" : "Men" };
   });
-  if (!tees.length) tees.push({ id: "t0", name: "Default", cr: null, slope: null, yards: null, gender: "Men" });
+  if (!tees.length) tees.push({ id: "t0", name: "Main tees", cr: null, slope: null, yards: null, gender: "Men" });
   return {
     id: courseId(rec), continent: rec[0], country: rec[1], city: rec[2],
     club: rec[3], course: rec[4],
@@ -15118,7 +15118,7 @@ function loadLocal() {
 }
 function saveLocal() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); }
-  catch (e) { toast("Browser storage is full — export a backup from Settings."); }
+  catch (e) { toast("This device is out of space — back up your rounds from Settings."); }
 }
 function saveDevice() {
   try { localStorage.setItem(DEVICE_KEY, JSON.stringify(LOCAL)); } catch (e) { /* ignore */ }
@@ -15269,7 +15269,7 @@ async function pull(quiet) {
     LOCAL.lastPull = now(); saveDevice();
     render();
   } catch (e) {
-    if (!quiet) toast("Could not reach the group — working offline.");
+    if (!quiet) toast("Cannot reach your group right now — your rounds are safe on this device.");
   } finally { syncing = false; }
 }
 
@@ -15604,10 +15604,10 @@ function viewWelcome() {
   return '<div class="page-head"><div><h1 class="page-title">Fairway Ledger</h1>' +
     '<p class="page-sub">Rounds, handicaps and a running table for your golf group.</p></div></div>' +
     '<div class="card card-pad stack" style="max-width:640px">' +
-    '<p>Everything is stored in this browser — no account, no sign-in. Add the players in your group, then log cards hole by hole. ' +
-    'Handicap indexes follow the World Handicap System and update themselves as rounds go in.</p>' +
-    '<div class="notice info"><span>' + ICONS.info + '</span><span>The course book holds <b>' + catalog().length.toLocaleString() + '</b> real courses. ' +
-      ratedCount().toLocaleString() + ' already carry a published rating and slope; for the rest, copy the two numbers off the card the first time you play there and every net figure becomes exact.</span></div>' +
+    '<p>No account, no password, nothing to install. Add the players in your group, then log your cards hole by hole. ' +
+    'Handicaps follow the World Handicap System and keep themselves up to date as the rounds go in.</p>' +
+    '<div class="notice info"><span>' + ICONS.info + '</span><span><b>' + catalog().length.toLocaleString() + '</b> courses are already in the book. ' +
+      'Where we have the course rating and slope your net score is exact from the very first round — anywhere else, copy the two numbers off the scorecard once and it stays exact from then on.</span></div>' +
     '<div class="row"><button class="btn primary" data-act="add-player">Add the first player</button>' +
     '<a class="btn" href="#/courses">Browse courses</a></div></div>';
 }
@@ -15734,8 +15734,8 @@ function viewPlay() {
         '</div>' +
       '</div>' : '') +
       (course && tee && (tee.cr == null || tee.slope == null)
-        ? '<div class="notice"><span>' + ICONS.flag + '</span><span>Without a rating and slope this tee uses the neutral defaults (slope 113, rating = par), so <b>net scores equal gross minus your index</b>. Copy the two numbers off the scorecard to make them exact.</span></div>' : '') +
-      (course && !course.verified ? '<div class="notice"><span>' + ICONS.pencil + '</span><span>Hole pars and stroke indexes for ' + esc(course.club) + ' are a standard template. <a href="#/courses/' + course.id + '">Check them against the card</a> — stroke index drives where your shots fall.</span></div>' : '') +
+        ? '<div class="notice"><span>' + ICONS.flag + '</span><span>We don’t have the course rating and slope for these tees yet, so <b>your net score is simply gross minus your handicap</b>. Copy the two numbers off the scorecard to make it exact.</span></div>' : '') +
+      (course && !course.verified ? '<div class="notice"><span>' + ICONS.pencil + '</span><span>Nobody has checked the card for ' + esc(course.club) + ' yet. <a href="#/courses/' + course.id + '">Compare it with the scorecard</a> — the stroke index decides which holes your shots fall on.</span></div>' : '') +
     '</div>';
 
   const players =
@@ -15890,11 +15890,11 @@ function viewRound(id) {
       tile("Gross", a.gross == null ? "—" : a.gross, a.toPar == null ? "" : relToPar(a.toPar) + " to par") +
       tile("Net", a.net == null ? "—" : a.net, a.courseHandicap == null ? "no index yet" : "off " + a.courseHandicap) +
       tile("Stableford", a.played ? a.points : "—", "points") +
-      tile("Differential", a.differential == null ? "—" : a.differential.toFixed(1), a.complete ? (nine ? "9 holes — not counted" : "counts toward index") : "card incomplete") +
+      tile("Handicap value", a.differential == null ? "—" : a.differential.toFixed(1), a.complete ? (nine ? "9 holes — does not count" : "what this round counts as") : "card not finished") +
     '</div>' +
 
-    (a.ratingMissing ? '<div class="notice" style="margin-bottom:14px"><span>' + ICONS.flag + '</span><span>This tee has no course rating or slope, so the net figures use neutral defaults. ' +
-      '<a href="#/courses/' + a.course.id + '">Add them</a> and this card recalculates.</span></div>' : "") +
+    (a.ratingMissing ? '<div class="notice" style="margin-bottom:14px"><span>' + ICONS.flag + '</span><span>We don’t have the course rating and slope for these tees, so the net figures are approximate. ' +
+      '<a href="#/courses/' + a.course.id + '">Add them</a> and this card updates itself.</span></div>' : "") +
 
     '<div class="card card-pad stack">' +
       '<div class="table-wrap"><table class="scorecard"><thead><tr><th class="rowhead">Hole</th>' + headCells() + '</tr></thead><tbody>' +
@@ -15991,8 +15991,8 @@ function viewPlayer(id) {
 const BOARD_COLS = [
   { k: "index", label: "Index", get: s => s.index, fmt: v => hiLabel(v), dir: "asc" },
   { k: "rounds", label: "Rounds", get: s => s.rounds, fmt: v => v, dir: "desc" },
-  { k: "avgGross", label: "Avg gross", get: s => s.avgGross, fmt: v => v == null ? "—" : v.toFixed(1), dir: "asc" },
-  { k: "avgToPar", label: "Avg ±", get: s => s.avgToPar, fmt: v => v == null ? "—" : relToPar(Math.round(v * 10) / 10), dir: "asc", cls: true },
+  { k: "avgGross", label: "Avg score", get: s => s.avgGross, fmt: v => v == null ? "—" : v.toFixed(1), dir: "asc" },
+  { k: "avgToPar", label: "Avg to par", get: s => s.avgToPar, fmt: v => v == null ? "—" : relToPar(Math.round(v * 10) / 10), dir: "asc", cls: true },
   { k: "best", label: "Best", get: s => s.best ? s.best.gross - s.best.par : null, fmt: v => v == null ? "—" : relToPar(v), dir: "asc", cls: true },
   { k: "avgPoints", label: "Stableford", get: s => s.avgPoints, fmt: v => v == null ? "—" : v.toFixed(1), dir: "desc" },
   { k: "gir", label: "GIR", get: s => s.gir, fmt: v => v == null ? "—" : Math.round(v * 100) + "%", dir: "desc" },
@@ -16016,7 +16016,7 @@ function viewLeaderboard() {
           }).join("") + '</tr>').join("") + '</tbody></table></div>'
       : '<div class="empty"><span>Add the players in your group first.</span>' +
         '<button class="btn primary" data-act="add-player">Add a player</button></div>') + '</div>' +
-    '<p class="help" style="margin-top:10px">Handicap index needs three complete 18-hole cards. Averages use complete 18-hole rounds only; fairway, green and putt figures use whatever was recorded.</p>';
+    '<p class="help" style="margin-top:10px">A handicap index appears after three completed 18-hole rounds. Averages count completed 18-hole rounds only; fairways, greens and putts use whatever anyone bothered to write down.</p>';
 }
 
 /* ---------- view: courses ---------- */
@@ -16086,10 +16086,9 @@ function viewCourses() {
         : '') +
     '</div>' +
     (q.length >= 2 ? '' : '<div class="card card-pad stack"><h2 class="sect-title">Browse</h2>' + browse + '</div>') +
-    '<p class="help" style="margin-top:12px">Course names and locations come from ' +
-      '<a href="https://opengolfapi.org" target="_blank" rel="noopener">OpenGolfAPI</a> and OpenStreetMap contributors (ODbL 1.0). ' +
-      'UAE ratings are the official tables published by the ' +
-      '<a href="https://egfgolf.ae/course-ratings/" target="_blank" rel="noopener">Emirates Golf Federation</a>.</p>';
+    '<p class="help" style="margin-top:12px">UAE ratings are the official tables from the ' +
+      '<a href="https://egfgolf.ae/course-ratings/" target="_blank" rel="noopener">Emirates Golf Federation</a>. ' +
+      'Course data © OpenStreetMap contributors, via <a href="https://opengolfapi.org" target="_blank" rel="noopener">OpenGolfAPI</a>.</p>';
 }
 
 function viewCourse(id) {
@@ -16102,8 +16101,8 @@ function viewCourse(id) {
     (c.catalogue || CATALOG_BY_ID.has(c.id) ? '' : '<button class="btn danger" data-act="delete-course" data-id="' + c.id + '">Delete</button>') + '</div>') +
 
     (c.verified ? '' : '<div class="notice" style="margin-bottom:14px"><span>' + ICONS.pencil + '</span><span>' +
-      'This card came from a standard template: par ' + par + ' with a conventional stroke index. ' +
-      'Correct anything that differs from the real card below, then mark it checked — stroke index decides where your shots fall.</span></div>') +
+      'Nobody has checked this card against the real scorecard yet — it shows par ' + par + ' with a typical stroke index. ' +
+      'Fix anything that differs below, then mark it checked. The stroke index decides which holes your shots fall on.</span></div>') +
 
     '<div class="card card-pad stack" style="margin-bottom:14px">' +
       '<div class="spread"><h2 class="sect-title">Tees</h2><button class="btn sm" data-act="add-tee" data-id="' + c.id + '">Add tee</button></div>' +
@@ -16113,10 +16112,10 @@ function viewCourse(id) {
         '<td class="n">' + (t.slope == null ? '<span class="muted">—</span>' : t.slope) + '</td>' +
         '<td class="n"><button class="btn ghost sm" data-act="edit-tee" data-id="' + c.id + '" data-tee="' + t.id + '">Edit</button></td></tr>').join("") +
       '</tbody></table></div>' +
-      '<p class="help">Rating and slope are printed on the scorecard, one pair per tee. Without them the app uses slope 113 and rating = par, which makes a course handicap equal to the handicap index.</p>' +
+      '<p class="help">Course rating and slope are printed on the scorecard, one pair for each set of tees. Until they are filled in, your course handicap is simply your handicap index.</p>' +
       (c.tees.some(t => t.cr == null) && canReachNetwork()
-        ? '<div><button class="btn sm" data-act="fetch-ratings" data-id="' + c.id + '">Look up a published rating</button>' +
-          '<span class="help" style="margin-left:8px">Searches the open OpenGolfAPI database. Best coverage in the United States.</span></div>'
+        ? '<div><button class="btn sm" data-act="fetch-ratings" data-id="' + c.id + '">Find the rating for me</button>' +
+          '<span class="help" style="margin-left:8px">We will check the published rating lists. Best coverage in the United States.</span></div>'
         : '') +
     '</div>' +
 
@@ -16172,77 +16171,74 @@ function viewPlayers() {
 function viewSettings() {
   const me = LOCAL.me ? playerById(LOCAL.me) : null;
   const sandboxed = !!(window.claude);
-  return head("Settings", "Your data, your device") +
+  return head("Settings", "Your golf, your device") +
     '<div class="stack" style="max-width:760px">' +
 
     '<div class="card card-pad stack">' +
-      '<h2 class="sect-title">This device</h2>' +
+      '<h2 class="sect-title">Playing as</h2>' +
       '<div class="spread"><span class="small">' + (me ? 'Cards open on <b>' + esc(me.name) + '</b> first.' : 'Nobody selected yet.') + '</span>' +
       '<button class="btn sm" data-act="pick-me">' + (me ? "Change" : "Choose") + '</button></div>' +
     '</div>' +
 
     '<div class="card card-pad stack">' +
-      '<h2 class="sect-title">Garmin &amp; scorecard import</h2>' +
-      '<p class="small muted">Garmin keeps golf scorecards behind its paid Golf Premium API, which needs an approved commercial account and a server — neither of which this app has. What works today: export your rounds from Garmin Golf (or any app that writes CSV) and drop the file here.</p>' +
-      '<input type="file" accept=".csv,.json,text/csv,application/json" data-act="import-file" aria-label="Choose a CSV or JSON file">' +
-      '<p class="help">A CSV needs a date column and eighteen hole columns (<span class="num">1…18</span>, <span class="num">H1…H18</span> or <span class="num">Hole 1…Hole 18</span>). Course, player and putts columns are used when present. Everything is previewed before anything is saved.</p>' +
+      '<h2 class="sect-title">Bring in rounds you already have</h2>' +
+      '<p class="small muted">Garmin does not let other apps read your golf scorecards automatically. What does work: export your rounds from Garmin Golf — or any app that saves a scorecard file — and drop the file here.</p>' +
+      '<input type="file" accept=".csv,.json,text/csv,application/json" data-act="import-file" aria-label="Choose a scorecard file">' +
+      '<p class="help">The file needs the date and a score for each of the eighteen holes. Course, player and putts come across too when they are in there. You will see everything before anything is saved.</p>' +
     '</div>' +
 
     '<div class="card card-pad stack">' +
       '<h2 class="sect-title">Share with the group</h2>' +
       (sandboxed
-        ? '<div class="notice"><span>' + ICONS.flag + '</span><span>This copy runs inside the Claude artifact viewer, which blocks outside network calls, so group sync is off here. Everything still works — it is just this browser. To share one ledger, host <b>index.html</b> anywhere (or open the file directly) and set sync up there.</span></div>'
+        ? '<div class="notice"><span>' + ICONS.flag + '</span><span>Sharing is not available on this copy of the app. Everything else works — your rounds simply stay on this device. To keep one scoreboard with your group, use the web version at <a href="https://petersulak10.github.io/fairway-ledger/" target="_blank" rel="noopener">fairway-ledger</a>.</span></div>'
         : syncOn()
-          ? '<div class="stack-sm"><div class="notice info"><span>' + ICONS.info + '</span><span>Sharing is on. Anyone with the group link below reads and writes the same ledger.</span></div>' +
-            '<input type="text" readonly value="' + esc(LOCAL.sync.url) + '" data-act="select-all" aria-label="Group link">' +
-            '<div class="row"><button class="btn sm" data-act="copy-sync">Copy link</button>' +
-            '<button class="btn sm" data-act="sync-now">Sync now</button>' +
-            '<button class="btn sm danger" data-act="leave-sync">Stop sharing</button></div>' +
-            '<p class="help">Last synced ' + (LOCAL.lastPull ? new Date(LOCAL.lastPull).toLocaleTimeString() : "never") + '. Anyone holding the link can read and edit — treat it like a shared document, not a password-protected account.</p></div>'
-          : '<div class="stack-sm"><p class="small muted">Create a shared ledger and send the link to your group — no accounts, no sign-in. The link is the key, so only share it with people you want writing to it.</p>' +
-            '<div class="row"><button class="btn primary" data-act="create-sync">Create a group link</button>' +
-            '<button class="btn" data-act="join-sync">Join with a link</button></div></div>') +
+          ? '<div class="stack-sm"><div class="notice info"><span>' + ICONS.info + '</span><span>Sharing is on. Everyone with the link below sees the same rounds and can add their own.</span></div>' +
+            '<input type="text" readonly value="' + esc(LOCAL.sync.url) + '" data-act="select-all" aria-label="Your group link">' +
+            '<div class="row"><button class="btn sm" data-act="copy-sync">Copy the link</button>' +
+            '<button class="btn sm" data-act="sync-now">Check for new rounds</button>' +
+            '<button class="btn sm danger" data-act="leave-sync">Leave the group</button></div>' +
+            '<p class="help">Last updated ' + (LOCAL.lastPull ? new Date(LOCAL.lastPull).toLocaleTimeString() : "not yet") + '. Anyone with the link can see and add rounds, so send it only to your group.</p></div>'
+          : '<div class="stack-sm"><p class="small muted">Keep one scoreboard for the whole group — no accounts, no sign-in. You get a link to send round; the link is what lets people in, so send it only to your golf group.</p>' +
+            '<div class="row"><button class="btn primary" data-act="create-sync">Start a group</button>' +
+            '<button class="btn" data-act="join-sync">Join a group</button></div></div>') +
     '</div>' +
 
     '<div class="card card-pad stack">' +
       '<h2 class="sect-title">The course book</h2>' +
       '<p class="small muted">' + catalog().length.toLocaleString() + ' courses, ' + ratedCount().toLocaleString() +
-        ' of them carrying a published course rating and slope. Where a rating is missing the app uses the neutral ' +
-        'WHS values (slope 113, rating = par) and says so on the card.</p>' +
+        ' of them with a published course rating and slope. Where a rating is missing, the app says so on the card and your net score falls back to gross minus your handicap.</p>' +
       '<div class="small stack-sm">' +
-        '<p><b>United Arab Emirates</b> — the official rating tables published by the ' +
-          '<a href="https://egfgolf.ae/course-ratings/" target="_blank" rel="noopener">Emirates Golf Federation</a>, every club, every tee.</p>' +
-        '<p><b>United States</b> — names, locations and hole cards from ' +
-          '<a href="https://opengolfapi.org" target="_blank" rel="noopener">OpenGolfAPI</a> ' +
-          '(© OpenStreetMap contributors, ODbL 1.0). Ratings are pulled a course at a time; ' +
-          'the open database caps free lookups per day, so they fill in gradually.</p>' +
-        '<p><b>Everywhere else</b> — a hand-checked list of well-known clubs with real locations and pars. ' +
-          'Hole cards are a standard template until you check them, and no rating is ever invented.</p>' +
+        '<p><b>United Arab Emirates</b> — the official rating tables from the ' +
+          '<a href="https://egfgolf.ae/course-ratings/" target="_blank" rel="noopener">Emirates Golf Federation</a>: every club, every set of tees.</p>' +
+          '<p><b>United States</b> — courses, locations and scorecards from a public golf course directory. ' +
+          'Ratings are added a course at a time, so more of them appear as time goes on.</p>' +
+        '<p><b>Everywhere else</b> — a hand-checked list of well-known clubs. Cards start from a standard layout ' +
+          'until somebody checks them, and a rating is never guessed.</p>' +
       '</div>' +
     '</div>' +
 
     '<div class="card card-pad stack">' +
-      '<h2 class="sect-title">Backup</h2>' +
-      '<div class="row"><button class="btn" data-act="export-json">Export everything (JSON)</button>' +
-      '<button class="btn" data-act="export-csv">Export rounds (CSV)</button>' +
+      '<h2 class="sect-title">Keep a copy</h2>' +
+      '<div class="row"><button class="btn" data-act="export-json">Back up everything</button>' +
+      '<button class="btn" data-act="export-csv">Export rounds for a spreadsheet</button>' +
       '<button class="btn" data-act="import-json">Restore a backup</button></div>' +
-      '<p class="help">Data lives in this browser only. Clearing site data erases it — keep a backup.</p>' +
+      '<p class="help">Your rounds are saved on this device. If you clear your browsing data they go with it, so keep a backup somewhere safe.</p>' +
     '</div>' +
 
     '<div class="card card-pad stack">' +
-      '<h2 class="sect-title">How the numbers work</h2>' +
+      '<h2 class="sect-title">How your handicap is worked out</h2>' +
       '<div class="small stack-sm">' +
-        '<p><b>Course handicap</b> = index × (slope ÷ 113) + (rating − par), rounded. Nine-hole rounds get half.</p>' +
-        '<p><b>Stableford</b> uses net double bogey; strokes fall on the lowest stroke indexes first.</p>' +
-        '<p><b>Handicap index</b> averages the best 8 differentials of your last 20 counting rounds, with the usual reductions when you have fewer than 20. Only complete 18-hole cards count.</p>' +
-        '<p class="muted">Not applied: playing conditions calculation, soft/hard cap, and the low handicap index — those come from a golf association, not from a spreadsheet. Treat the index here as a good working number, not an official one.</p>' +
+        '<p><b>Your course handicap</b> adjusts your handicap index for how hard the course plays from those tees — the rating and slope off the scorecard. Nine holes gets half.</p>' +
+        '<p><b>Stableford</b> points are worked out under net double bogey, with your shots falling on the hardest holes first.</p>' +
+        '<p><b>Your handicap index</b> is the average of your best 8 rounds out of the last 20, with the usual allowances while you have fewer than 20. Only completed 18-hole cards count towards it.</p>' +
+        '<p class="muted">This is not your official club handicap — a few adjustments only a golf union can make are not included. Treat it as a very good working number.</p>' +
       '</div>' +
     '</div>' +
 
     '<div class="card card-pad stack">' +
-      '<h2 class="sect-title">Danger zone</h2>' +
-      '<div class="row"><button class="btn danger" data-act="reset-courses">Discard my course edits</button>' +
-      '<button class="btn danger" data-act="wipe">Erase everything</button></div>' +
+      '<h2 class="sect-title">Start over</h2>' +
+      '<div class="row"><button class="btn danger" data-act="reset-courses">Undo my course corrections</button>' +
+      '<button class="btn danger" data-act="wipe">Erase all my rounds</button></div>' +
     '</div>' +
     '</div>';
 }
@@ -16282,13 +16278,12 @@ function detectColumns(header) {
 }
 function importCSV(text) {
   const rows = parseCSV(text);
-  if (rows.length < 2) { toast("That file has no rows to read."); return; }
+  if (rows.length < 2) { toast("There are no rounds in that file."); return; }
   const cols = detectColumns(rows[0]);
   const found = cols.holes.filter(i => i >= 0).length;
   if (found < 9) {
-    openModal("Nothing to import", '<p class="small">This file has no hole-score columns. It needs columns named <span class="num">1…18</span>, ' +
-      '<span class="num">H1…H18</span> or <span class="num">Hole 1…Hole 18</span>, plus a date.</p>' +
-      '<p class="small muted">Columns seen: ' + esc(rows[0].join(", ").slice(0, 300)) + '</p>',
+    openModal("Nothing to import", '<p class="small">We could not find any hole scores in that file. It needs a date and a score for each hole.</p>' +
+      '<p class="small muted">What we found instead: ' + esc(rows[0].join(", ").slice(0, 300)) + '</p>',
       '<button class="btn" data-close="1">Close</button>');
     return;
   }
@@ -16305,14 +16300,14 @@ function importCSV(text) {
     };
   }).filter(x => x.scores.filter(s => s != null).length >= 9);
 
-  if (!parsed.length) { toast("No rows had enough hole scores."); return; }
+  if (!parsed.length) { toast("None of those rounds had enough hole scores."); return; }
   LOCAL.pendingImport = parsed;
   const guessPlayer = LOCAL.me || (S.players[0] && S.players[0].id) || "";
   openModal("Import " + plural(parsed.length, "round"),
-    '<p class="small">Found ' + found + ' hole columns. Rows are matched to a course by name; anything unrecognised is added to the book as a new course with a template card you can correct afterwards.</p>' +
+    '<p class="small">Each round is matched to a course by name. Anything we do not recognise is added to your course book, ready for you to tidy up.</p>' +
     '<div class="field"><label for="imp-player">Log these rounds for</label><select id="imp-player">' +
       S.players.map(p => '<option value="' + p.id + '"' + (p.id === guessPlayer ? " selected" : "") + '>' + esc(p.name) + '</option>').join("") +
-      '</select><span class="help">Used when the file has no player column, or the name does not match anyone in the group.</span></div>' +
+      '</select><span class="help">Used when the file does not say who played, or the name is not in your group yet.</span></div>' +
     '<div class="table-wrap"><table class="tbl"><thead><tr><th>Date</th><th>Course</th><th>Player</th><th class="n">Holes</th><th class="n">Total</th></tr></thead><tbody>' +
     parsed.slice(0, 8).map(x => '<tr><td>' + esc(x.date) + '</td><td>' + esc(x.courseName || "—") + '</td>' +
       '<td>' + esc(x.playerName || "—") + '</td><td class="n">' + x.scores.filter(s => s != null).length + '</td>' +
@@ -16364,7 +16359,7 @@ function newCourse(o) {
     id: "c_" + uid(),
     continent: o.continent, country: o.country, city: o.city, club: o.club, course: o.course,
     holes: parStr.split("").map((p, i) => ({ n: i + 1, par: +p, si: DEFAULT_SI[i] })),
-    tees: [{ id: "t0", name: o.teeName || "Default", yards: o.yards || null, cr: null, slope: null }],
+    tees: [{ id: "t0", name: o.teeName || "Main tees", yards: o.yards || null, cr: null, slope: null }],
     catalogue: false, verified: false
   });
 }
@@ -16383,8 +16378,8 @@ async function offerFile(filename, data, mime) {
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 500);
     toast("Saved " + filename);
   } catch (e) {
-    try { await navigator.clipboard.writeText(data); toast("Downloads are blocked here — copied to the clipboard instead."); }
-    catch (e2) { toast("Could not export in this browser."); }
+    try { await navigator.clipboard.writeText(data); toast("Saving files is not allowed here, so it is on your clipboard instead."); }
+    catch (e2) { toast("Could not save the file here."); }
   }
 }
 function exportCSV() {
@@ -16433,7 +16428,7 @@ function courseModal(c) {
       inputField("co-course", "Course", c.course, "North") +
       (isNew ? '<div class="field"><label for="co-par">Par</label><select id="co-par">' +
         [69, 70, 71, 72, 73].map(p => '<option' + (p === 72 ? " selected" : "") + '>' + p + '</option>').join("") +
-        '</select><span class="help">A template card is created; correct it hole by hole afterwards.</span></div>' : "") +
+        '</select><span class="help">We will start you off with a standard card — adjust it hole by hole afterwards.</span></div>' : "") +
     '</div>',
     '<button class="btn" data-close="1">Cancel</button>' +
     '<button class="btn primary" data-act="save-course" data-id="' + (c.id || "") + '">Save</button>');
@@ -16618,28 +16613,28 @@ const ACTIONS = {
   },
   "delete-course": (el) => {
     const used = liveRounds().some(r => r.courseId === el.dataset.id);
-    if (used) { toast("Rounds are logged here — delete those first."); return; }
+    if (used) { toast("You have rounds at this course — delete those first."); return; }
     if (!confirm("Remove this course from the book?")) return;
     S.courses = S.courses.filter(c => c.id !== el.dataset.id);
     invalidateTree(); commit(); go("/courses");
   },
   "fetch-ratings": async (el) => {
     const id = el.dataset.id;
-    el.disabled = true; el.textContent = "Looking…";
+    el.disabled = true; el.textContent = "Looking it up…";
     try {
       const name = await fetchRatings(id);
       invalidateTree(); commit();
-      toast("Rating loaded from " + name);
+      toast("Rating added from " + name);
     } catch (e) {
       render();
       const why = e && e.message;
-      toast(why === "limit" ? "The open database has hit its daily free limit — try tomorrow."
-        : why === "nomatch" ? "No match in the open database — enter the numbers from the card."
-        : why === "norating" ? "That course has no published rating yet — enter it from the card."
-        : "Could not reach the open database.");
+      toast(why === "limit" ? "We have looked up as many ratings as we are allowed today — try again tomorrow."
+        : why === "nomatch" ? "We could not find this course — type the two numbers off the scorecard instead."
+        : why === "norating" ? "No rating has been published for this course yet — type it off the scorecard."
+        : "Could not check the rating lists just now.");
     }
   },
-  "verify-course": (el) => { const c = ownCourse(el.dataset.id); c.verified = true; touch(c); commit(); toast("Marked as checked"); },
+  "verify-course": (el) => { const c = ownCourse(el.dataset.id); c.verified = true; touch(c); commit(); toast("Card marked as checked"); },
   "course-par": (el) => {
     const c = ownCourse(el.dataset.id), v = num(el.value);
     if (v != null) { c.holes[+el.dataset.i].par = clamp(Math.round(v), 3, 6); touch(c); commit(); }
@@ -16674,36 +16669,35 @@ const ACTIONS = {
     openModal("Restore a backup",
       '<div class="field"><label for="imp-json">Paste the contents of a backup file</label>' +
       '<textarea id="imp-json" rows="8" placeholder="{ &quot;players&quot;: [ … ] }"></textarea>' +
-      '<span class="help">Records merge by id — the newer version of each wins. Nothing is deleted.</span></div>',
+      '<span class="help">Anything already here is kept — the newer version of each round wins. Nothing is deleted.</span></div>',
       '<button class="btn" data-close="1">Cancel</button><button class="btn primary" data-act="do-import-json">Restore</button>');
   },
   "do-import-json": () => {
     try {
       mergeState(JSON.parse($("#imp-json").value));
-      closeModal(); commit(); toast("Backup merged.");
-    } catch (e) { toast("That is not valid backup JSON."); }
+      closeModal(); commit(); toast("Backup restored.");
+    } catch (e) { toast("That does not look like a backup."); }
   },
 
   /* sync */
   "create-sync": async (el) => {
-    el.disabled = true; el.textContent = "Creating…";
+    el.disabled = true; el.textContent = "Setting it up…";
     try {
       const url = await createGroup();
       LOCAL.sync = { url }; saveDevice(); render();
-      toast("Group link created — send it to your friends.");
+      toast("Your group is ready — send the link to your friends.");
     } catch (e) {
       render();
-      openModal("Could not create the link", '<p class="small">The sync service could not be reached from this page. ' +
-        'That is expected inside the Claude artifact viewer, which blocks outside requests. Host <b>index.html</b> yourself — or open it straight from your machine — and try again.</p>' +
-        '<p class="small muted">You can also point sync at any URL that answers GET and PUT with JSON: use <b>Join with a link</b>.</p>',
+      openModal("Sharing is not available here", '<p class="small">This copy of the app cannot set up a shared scoreboard. Open the web version and try again there — everything you have logged on this device can be brought across from Settings.</p>' +
+        '<p class="small muted">Already have a link from someone else? Use <b>Join a group</b>.</p>',
         '<button class="btn primary" data-close="1">Understood</button>');
     }
   },
   "join-sync": () => {
     openModal("Join a group",
-      '<div class="field"><label for="sy-url">Group link</label>' +
+      '<div class="field"><label for="sy-url">Your group link</label>' +
       '<input id="sy-url" type="text" placeholder="https://jsonblob.com/api/jsonBlob/…"></div>' +
-      '<p class="help">Paste the link from whoever set the group up. Your rounds merge into theirs; nothing is lost on either side.</p>',
+      '<p class="help">Paste the link from whoever set the group up. Your rounds join theirs and nothing is lost on either side.</p>',
       '<button class="btn" data-close="1">Cancel</button><button class="btn primary" data-act="do-join-sync">Join</button>');
   },
   "do-join-sync": async () => {
@@ -16712,7 +16706,7 @@ const ACTIONS = {
     LOCAL.sync = { url }; saveDevice(); closeModal();
     await pull();
     await push();
-    toast("Joined — the ledger is shared now.");
+    toast("You are in — everyone now sees the same rounds.");
   },
   "leave-sync": () => {
     if (!confirm("Stop sharing? Your copy of the data stays on this device.")) return;
@@ -16721,7 +16715,7 @@ const ACTIONS = {
   "sync-now": () => pull(),
   "copy-sync": async () => {
     try { await navigator.clipboard.writeText(LOCAL.sync.url); toast("Link copied"); }
-    catch (e) { toast("Select the link and copy it manually."); }
+    catch (e) { toast("Select the link and copy it yourself."); }
   },
   "select-all": (el) => el.select(),
 
@@ -16730,7 +16724,7 @@ const ACTIONS = {
     if (!confirm("Discard your edits to catalogue courses? Courses you added yourself are kept.")) return;
     catalog();
     S.courses = S.courses.filter(c => !CATALOG_BY_ID.has(c.id));
-    invalidateTree(); commit(); toast("Edits discarded");
+    invalidateTree(); commit(); toast("Your corrections were undone");
   },
   "wipe": () => {
     if (!confirm("Erase every player, round and course on this device? This cannot be undone.")) return;
@@ -16765,8 +16759,8 @@ document.addEventListener("change", (e) => {
     reader.onload = () => {
       const text = String(reader.result);
       if (/\.json$/i.test(file.name) || text.trim().startsWith("{")) {
-        try { mergeState(JSON.parse(text)); commit(); toast("File merged."); }
-        catch (err) { toast("That JSON could not be read."); }
+        try { mergeState(JSON.parse(text)); commit(); toast("Rounds added."); }
+        catch (err) { toast("That file could not be read."); }
       } else importCSV(text);
       el.value = "";
     };
