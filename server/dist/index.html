@@ -22628,7 +22628,9 @@ function selectField(label, act, options, value, disabled) {
     '</select></div>';
 }
 function head(title, sub, right, back) {
-  if (back === undefined && route().top !== "/") back = backLink("/", "Clubhouse");
+  /* A section is a tab, so it always points home; only a page you drilled
+     into remembers where you came from. */
+  if (back === undefined && route().top !== "/") back = backLink("/", "Clubhouse", true);
   return (back || '') +
     '<div class="page-head"><div><h1 class="page-title">' + esc(title) + '</h1>' +
     (sub ? '<p class="page-sub">' + sub + '</p>' : "") + '</div>' + (right || "") + '</div>';
@@ -22652,9 +22654,9 @@ function routeLabel(path) {
 function isSection(path) {
   return path != null && String(path).split("/").filter(Boolean).length <= 1;
 }
-function backLink(fallbackPath, fallbackLabel) {
+function backLink(fallbackPath, fallbackLabel, alwaysFallback) {
   const here = route().raw;
-  const usePrev = PREV_ROUTE && PREV_ROUTE !== here && isSection(PREV_ROUTE);
+  const usePrev = !alwaysFallback && PREV_ROUTE && PREV_ROUTE !== here && isSection(PREV_ROUTE);
   const path = usePrev ? PREV_ROUTE : fallbackPath;
   const label = usePrev ? routeLabel(PREV_ROUTE) : fallbackLabel;
   return '<a class="back" href="#' + esc(path) + '">' +
