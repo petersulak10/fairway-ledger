@@ -488,6 +488,7 @@ table.tbl tr.clickable { cursor: pointer; }
     </div>
   </aside>
   <main class="main">
+    <header class="mobile-head" id="mobilehead"></header>
     <div class="wrap" id="view"></div>
   </main>
 </div>
@@ -22206,6 +22207,16 @@ function renderNav() {
     return '<a href="#' + p + '" class="' + (r.top === p ? "on" : "") + '">' +
       '<span class="nav-glyph">' + ICONS[x.glyph] + '</span>' + esc(x.label) + '</a>';
   }).join("");
+  const r2 = route();
+  $("#mobilehead").innerHTML =
+    '<a href="#/" class="mh-brand"><span class="brand-mark">Fairway Ledger</span></a>' +
+    '<div class="mh-actions">' +
+    ["/courses", "/settings"].map(path => {
+      const x = ROUTES.find(y => y.path === path);
+      return '<a href="#' + path + '" class="mh-btn' + (r2.top === path ? " on" : "") + '" ' +
+        'aria-label="' + esc(x.label) + '" title="' + esc(x.label) + '">' + ICONS[x.glyph] + '</a>';
+    }).join("") + '</div>';
+
   const me = LOCAL.me ? playerById(LOCAL.me) : null;
   $("#whoami").innerHTML = me
     ? '<button class="btn ghost sm" data-act="pick-me" style="width:100%;justify-content:flex-start;gap:8px">' +
@@ -23772,4 +23783,25 @@ input[type="file"]::file-selector-button {
 @media (max-width: 860px) {
   .back { margin-left: -7px; padding-top: 7px; padding-bottom: 7px; font-size: 14px; }
 }
+</style>
+
+<style>
+/* phone top bar: the sections the tab bar has no room for */
+.mobile-head {
+  align-items: center; justify-content: space-between;
+  gap: 12px; margin: -4px 0 14px;
+  padding-bottom: 10px; border-bottom: 1px solid var(--line);
+}
+.mobile-head .mh-brand { text-decoration: none; color: inherit; min-width: 0; }
+.mobile-head .brand-mark { font-size: 18px; }
+.mh-actions { display: flex; gap: 6px; flex: none; }
+.mh-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface);
+  color: var(--ink-2); text-decoration: none;
+}
+.mh-btn:hover { background: var(--surface-2); color: var(--ink); }
+.mh-btn.on { background: var(--accent-wash); color: var(--accent); border-color: transparent; }
+.mh-btn svg { width: 18px; height: 18px; }
 </style>
