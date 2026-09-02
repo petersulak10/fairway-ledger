@@ -23727,9 +23727,30 @@ window.addEventListener("hashchange", (e) => {
   window.scrollTo(0, 0);
   render();
 });
+/* ---------- arriving from the old address ------------------------------
+   The old GitHub address hands its ledger over in the URL fragment, which
+   never leaves the browser. Merge it, then clean the address bar.
+--------------------------------------------------------------------- */
+function acceptHandover() {
+  const m = /[#&]import=([^&]+)/.exec(location.hash || "");
+  if (!m) return 0;
+  let brought = 0;
+  try {
+    const payload = JSON.parse(decodeURIComponent(m[1]));
+    const before = S.players.length + S.rounds.length;
+    mergeState(payload);
+    brought = (S.players.length + S.rounds.length) - before;
+    saveLocal();
+  } catch (e) { /* a mangled link should never break the app */ }
+  history.replaceState(null, "", location.pathname + location.search + "#/");
+  return brought;
+}
+
 loadLocal();
+const handedOver = acceptHandover();
 if (saveLocalSoon) saveLocal();
 render();
+if (handedOver > 0) toast("Brought " + handedOver + " of your records across");
 if (syncOn()) { pull(true); setInterval(() => pull(true), 25000); }
 document.addEventListener("visibilitychange", () => { if (!document.hidden && syncOn()) pull(true); });
 </script>
