@@ -6,9 +6,9 @@ compatibility_date = "2026-01-01"
 # Paste the id it prints in place of PUT_YOUR_KV_ID_HERE.
 [[kv_namespaces]]
 binding = "LEDGER"
-id = "PUT_YOUR_KV_ID_HERE"
+id = "746676e5df10412cb6e3e517bd580398"
 
 [vars]
 # Lock the endpoint to your own site once you are happy it works.
-# Leave as "*" while testing.
-ALLOWED_ORIGIN = "*"
+# A comma-separated list; "*" allows any page.
+ALLOWED_ORIGIN = "https://petersulak10.github.io,http://localhost:8791"

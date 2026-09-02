@@ -20,10 +20,20 @@ const MIN_ID = 20;
 const MAX_BYTES = 2 * 1024 * 1024;          // a very large group is still ~100 KB
 const ID_OK = /^[A-Za-z0-9_-]{20,64}$/;
 
-function cors(env, extra) {
-  const origin = (env && env.ALLOWED_ORIGIN) || "*";
+/** ALLOWED_ORIGIN is "*" or a comma-separated list; a listed caller gets its
+ *  own origin echoed back, anything else gets a value it cannot match. */
+function allowOrigin(request, env) {
+  const setting = ((env && env.ALLOWED_ORIGIN) || "*").trim();
+  if (setting === "*") return "*";
+  const asked = request.headers.get("origin") || "";
+  const list = setting.split(",").map(x => x.trim()).filter(Boolean);
+  return list.includes(asked) ? asked : list[0];
+}
+
+function cors(request, env, extra) {
   return Object.assign({
-    "access-control-allow-origin": origin,
+    "access-control-allow-origin": allowOrigin(request, env),
+    "vary": "origin",
     "access-control-allow-methods": "GET,PUT,DELETE,OPTIONS",
     "access-control-allow-headers": "content-type",
     "access-control-max-age": "86400",
@@ -31,56 +41,56 @@ function cors(env, extra) {
   }, extra || {});
 }
 
-const json = (env, body, status) =>
+const json = (request, env, body, status) =>
   new Response(JSON.stringify(body), {
     status: status || 200,
-    headers: cors(env, { "content-type": "application/json; charset=utf-8" })
+    headers: cors(request, env, { "content-type": "application/json; charset=utf-8" })
   });
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env) });
+    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request, env) });
 
     if (url.pathname === "/" || url.pathname === "") {
-      return json(env, { service: "fairway-ledger-sync", ok: true });
+      return json(request, env, { service: "fairway-ledger-sync", ok: true });
     }
 
     const match = url.pathname.match(/^\/g\/([^/]+)\/?$/);
-    if (!match) return json(env, { error: "not_found" }, 404);
+    if (!match) return json(request, env, { error: "not_found" }, 404);
 
     const id = decodeURIComponent(match[1]);
     if (!ID_OK.test(id)) {
-      return json(env, { error: "bad_group_id", detail: `Group ids are ${MIN_ID}-64 characters of A-Z a-z 0-9 _ -` }, 400);
+      return json(request, env, { error: "bad_group_id", detail: `Group ids are ${MIN_ID}-64 characters of A-Z a-z 0-9 _ -` }, 400);
     }
-    if (!env.LEDGER) return json(env, { error: "kv_not_bound" }, 500);
+    if (!env.LEDGER) return json(request, env, { error: "kv_not_bound" }, 500);
 
     if (request.method === "GET") {
       const body = await env.LEDGER.get(id);
       return new Response(body || "{}", {
-        headers: cors(env, { "content-type": "application/json; charset=utf-8" })
+        headers: cors(request, env, { "content-type": "application/json; charset=utf-8" })
       });
     }
 
     if (request.method === "PUT") {
       const text = await request.text();
-      if (text.length > MAX_BYTES) return json(env, { error: "too_large" }, 413);
+      if (text.length > MAX_BYTES) return json(request, env, { error: "too_large" }, 413);
       let parsed;
       try { parsed = JSON.parse(text); }
-      catch (e) { return json(env, { error: "not_json" }, 400); }
+      catch (e) { return json(request, env, { error: "not_json" }, 400); }
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return json(env, { error: "not_an_object" }, 400);
+        return json(request, env, { error: "not_an_object" }, 400);
       }
       await env.LEDGER.put(id, text);
-      return json(env, { ok: true, bytes: text.length });
+      return json(request, env, { ok: true, bytes: text.length });
     }
 
     if (request.method === "DELETE") {
       await env.LEDGER.delete(id);
-      return json(env, { ok: true, deleted: true });
+      return json(request, env, { ok: true, deleted: true });
     }
 
-    return json(env, { error: "method_not_allowed" }, 405);
+    return json(request, env, { error: "method_not_allowed" }, 405);
   }
 };
