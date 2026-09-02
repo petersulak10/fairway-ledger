@@ -85,7 +85,21 @@ def tee_pack(tees):
     return ';'.join(out)
 
 records = {}
+clubs_seen = set()          # (country, normalised club) -> a better source already has it
+
+def club_key(country, club):
+    def n(x):
+        x = unicodedata.normalize('NFKD', str(x or '').lower())
+        x = ''.join(c for c in x if not unicodedata.combining(c))
+        x = re.sub(r'\b(golf|club|course|resort|country|the|and|&|de|gc|cc|park|links)\b', '', x)
+        return re.sub(r'[^a-z0-9]', '', x)
+    return (n(country), n(club))
+
+UK_NATIONS = {'Scotland', 'England', 'Wales', 'Northern Ireland'}
+
 def add(continent, country, city, club, course, holes, par, pars, sis, tees, src):
+    if country in UK_NATIONS:
+        country = 'United Kingdom'
     key = norm_key(club, city, country) + (clean(course).lower(),)
     parS, siS = par_pack(pars), si_pack(sis)
     real_r = any(t.get('cr') and t.get('slope') for t in tees)
@@ -93,6 +107,10 @@ def add(continent, country, city, club, course, holes, par, pars, sis, tees, src
     rec = [clean(continent), clean(country), clean(city) or '—', clean(club),
            clean(course) or 'Main', str(holes or 18), str(par or ''), parS, siS,
            tee_pack(tees), flags, src]
+    ck = club_key(country, club)
+    if src == 'osm' and ck in clubs_seen:
+        return                                        # a better source already has this club
+    clubs_seen.add(ck)
     old = records.get(key)
     if old is None or len(old[10]) < len(flags):     # keep the richer record
         records[key] = rec
@@ -157,22 +175,44 @@ except ImportError:
     pass
 
 # ---- 5. Worldwide names from OpenStreetMap (Latin-script names only) -------
-if os.path.exists('osm-courses.ndjson'):
-    for line in open('osm-courses.ndjson'):
+#         The country a course was harvested under is NOT trusted: the query
+#         boxes are rectangles and overlap neighbours, so a course near Prague
+#         arrives inside the German box. Every course is placed by its own
+#         coordinates instead.
+NAME_FIX = {'Czech Republic': 'Czechia', 'United States of America': 'United States',
+            'Republic of Serbia': 'Serbia', 'United Kingdom': 'United Kingdom'}
+if os.path.exists('data/osm-courses.ndjson') or os.path.exists('osm-courses.ndjson'):
+    import geocode
+    src_file = 'data/osm-courses.ndjson' if os.path.exists('data/osm-courses.ndjson') else 'osm-courses.ndjson'
+    placed = misplaced = unplaced = 0
+    for line in open(src_file):
         blk = json.loads(line)
-        cc = blk['cc']
-        if cc == 'US': continue
+        cc_query = blk['cc']
+        if cc_query == 'US': continue
         for c in blk['courses']:
             nm = c.get('name')
             if not nm: continue
             latin = sum(1 for ch in nm if ch.isascii() and ch.isalpha())
             if latin < max(3, len([ch for ch in nm if ch.isalpha()]) * 0.5): continue
+            iso = geocode.place(c.get("lat"), c.get("lon"))
+            if iso:
+                placed += 1
+                if iso != cc_query: misplaced += 1
+            else:
+                unplaced += 1
+                iso = cc_query
+            m = geocode.meta(iso)
+            if not m: continue
+            country = NAME_FIX.get(m[0], m[0])
+            continent = m[1]
             holes = c.get('holes')
             try: holes = int(holes)
             except Exception: holes = 18
             if holes not in (9, 18, 27, 36): holes = 18
-            add(CONTINENT.get(cc, 'Other'), COUNTRY.get(cc, cc), c.get('city') or '—',
-                c['name'], 'Main', 18 if holes >= 18 else 9, c.get('par'), None, None, [], 'osm')
+            add(continent, country, c.get('city') or '—', nm, 'Main',
+                18 if holes >= 18 else 9, c.get('par'), None, None, [], 'osm')
+    print(f'  OSM: {placed} placed by coordinates ({misplaced} were in a different country '
+          f'than the query box), {unplaced} kept from the query box')
 
 lines = ['|'.join(v[:11]) for v in records.values()]
 lines.sort()
