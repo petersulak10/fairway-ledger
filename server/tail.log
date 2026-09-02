@@ -1,0 +1,8 @@
+
+ ⛅️ wrangler 4.128.0
+────────────────────
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mMissing deployment. In non-interactive mode, provide the deployment ID or URL as a positional argument.[0m
+
+
+🪵  Logs were written to "/Users/petersulak/Library/Preferences/.wrangler/logs/wrangler-2026-09-02_17-25-49_216.log"
