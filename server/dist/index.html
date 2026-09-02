@@ -280,7 +280,7 @@ a { color: var(--accent); }
 /* ---------- forms ---------- */
 .field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .field > label { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
-input:not([type]), input[type="text"], input[type="number"], input[type="date"], input[type="file"], select, textarea {
+input:not([type]), input[type="text"], input[type="password"], input[type="number"], input[type="date"], input[type="file"], input[type="search"], input[type="tel"], select, textarea {
   width: 100%; padding: 9px 11px; border-radius: var(--radius-sm);
   border: 1px solid var(--line); background: var(--surface); color: var(--ink);
   font-size: 14.5px; transition: border-color .14s ease, box-shadow .14s ease;
@@ -21891,6 +21891,144 @@ function playerStats(playerId) {
 </script>
 
 <script>
+/* ---------- course cards, fetched only when a course is picked --------
+   The bundled book carries names and locations for every course. The
+   scorecard itself — tees, rating, slope, hole pars and stroke index — is
+   pulled the first time somebody actually chooses that course, then kept.
+---------------------------------------------------------------------- */
+const OGA = "https://api.opengolfapi.org/v1";
+
+/** loading | done | failed | limit | nomatch, keyed by course id */
+const detailState = new Map();
+
+/** A course still wants its card if it has no rating or an unchecked card. */
+function needsDetail(c) {
+  return !!c && (!c.tees.some(t => t.cr != null && t.slope != null) || !c.verified);
+}
+
+async function ogaJson(path) {
+  const r = await fetch(OGA + path, { headers: { accept: "application/json" } });
+  const d = await r.json();
+  if (d && d.limit_hit) throw new Error("limit");
+  return d;
+}
+
+/** Find this course in the open database, by stored id or by name and town. */
+async function ogaResolve(c) {
+  if (c.ogaId) return { id: c.ogaId, name: c.club };
+  const d = await ogaJson("/courses/search?q=" + encodeURIComponent(c.club));
+  const list = d.courses || [];
+  if (!list.length) throw new Error("nomatch");
+  const town = fold(c.city);
+  return list.find(x => fold(x.city) === town) || list[0];
+}
+
+/** Pull the card and write it into the user's own copy of the course. */
+async function loadDetail(courseId) {
+  const c = courseById(courseId);
+  if (!c) return null;
+  const hit = await ogaResolve(c);
+  const t = await ogaJson("/courses/" + hit.id + "/tees");
+  const tees = (t.tees || []).filter(x => x.course_rating && x.slope);
+  const h = await ogaJson("/courses/" + hit.id + "/holes");
+  const holes = (h.holes || []).filter(x => x.par);
+  if (!tees.length && !holes.length) throw new Error("norating");
+
+  const own = ownCourse(courseId);
+  own.ogaId = hit.id;
+  if (own.city === "—" || own.country === "Added by you") {
+    try {
+      const info = await ogaJson("/courses/" + hit.id);
+      const town = info.city || info.state;
+      if (town) own.city = town;
+      if (info.state && /^[A-Z]{2}$/.test(info.state)) {
+        own.country = "United States"; own.continent = "North America";
+      } else if (info.country) { own.country = info.country; }
+      invalidateTree();
+    } catch (e) { /* the card matters more than the address */ }
+  }
+  /* never overwrite a rating from a golf federation with an open-database one */
+  const alreadyRated = own.tees.some(t2 => t2.cr != null && t2.slope != null);
+  if (tees.length && !alreadyRated) {
+    own.tees = tees.map((x, i) => ({
+      id: "t" + i,
+      name: (x.tee_name || "Tee " + (i + 1)) + (x.gender === "Female" ? " (ladies)" : ""),
+      cr: x.course_rating, slope: x.slope, yards: x.yardage || null,
+      gender: x.gender === "Female" ? "Ladies" : "Men"
+    }));
+  }
+  if (!own.verified && holes.length === own.holes.length && holes.every(x => x.handicap_index)) {
+    own.holes = holes.map(x => ({ n: x.number, par: x.par, si: x.handicap_index }));
+    own.verified = true;
+  }
+  touch(own);
+  return hit.name;
+}
+
+/** Quietly fetch a course's card the first time it is chosen. */
+function primeDetail(courseId) {
+  if (!hasBackend() || !courseId) return;
+  if (detailState.has(courseId)) return;
+  const c = courseById(courseId);
+  if (!needsDetail(c)) return;
+  detailState.set(courseId, "loading");
+  loadDetail(courseId)
+    .then(() => { detailState.set(courseId, "done"); commit(); })
+    .catch(e => { detailState.set(courseId, (e && e.message) || "failed"); render(); });
+}
+
+/* ---------- searching the whole open database as you type -------------
+   The bundled book is searched instantly and offline. Anything else in the
+   open database shows up a moment later under "More courses", so every
+   course is findable even though only the ones you pick are downloaded.
+---------------------------------------------------------------------- */
+let remoteQ = "", remoteHits = [], remoteBusy = false, remoteTimer = null;
+
+function searchRemote(q) {
+  const query = String(q || "").trim();
+  clearTimeout(remoteTimer);
+  if (!hasBackend() || query.length < 3) {
+    if (remoteHits.length || remoteBusy) { remoteHits = []; remoteQ = ""; remoteBusy = false; }
+    return;
+  }
+  if (query === remoteQ) return;
+  remoteTimer = setTimeout(async () => {
+    remoteBusy = true; remoteQ = query; render();
+    try {
+      const d = await ogaJson("/courses/search?q=" + encodeURIComponent(query));
+      const known = new Set(searchCourses(query, 80).map(c => fold(c.club)));
+      remoteHits = (d.courses || []).filter(x => x.name && !known.has(fold(x.name))).slice(0, 12);
+    } catch (e) { remoteHits = []; }
+    remoteBusy = false; render();
+  }, 400);
+}
+
+/** Add a course found in the open database to the book, then load its card. */
+function adoptRemote(hit) {
+  const c = newCourse({
+    continent: "Added by you", country: hit.country || "Added by you",
+    city: hit.city || hit.state || "—", club: hit.name, course: "Main",
+    par: hit.par || 72
+  });
+  c.ogaId = hit.id;
+  S.courses.push(c);
+  invalidateTree();
+  commit(false);
+  primeDetail(c.id);
+  return c;
+}
+
+function remoteBlock(onPick) {
+  if (!hasBackend()) return "";
+  if (remoteBusy) return '<p class="help" style="margin-top:10px">Looking for more courses…</p>';
+  if (!remoteHits.length) return "";
+  return '<div style="margin-top:12px"><span class="label">More courses</span>' +
+    '<div class="pill-list" style="margin-top:6px">' + remoteHits.map((h, i) =>
+      '<button class="pick" data-act="' + onPick + '" data-i="' + i + '">' + esc(h.name) +
+      (h.city ? ' <span class="tiny muted">' + esc(h.city) + '</span>' : '') + '</button>').join("") +
+    '</div></div>';
+}
+
 /* ---------- the group scoreboard ---------------------------------------
    The app is served by its own small backend, so there is one shared
    database behind it: every player sees every other player's rounds with
