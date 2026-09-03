@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS players (
   name       TEXT NOT NULL,
   pin_hash   TEXT,                    -- null until somebody claims this name
   pin_salt   TEXT,
+  is_admin   INTEGER NOT NULL DEFAULT 0,
   body       TEXT NOT NULL,           -- the rest of the player record, as JSON
   updated_at INTEGER NOT NULL,
   deleted    INTEGER NOT NULL DEFAULT 0
@@ -38,3 +39,15 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_player ON sessions(player_id);
+
+-- Comments the group leaves on each other's rounds.
+CREATE TABLE IF NOT EXISTS comments (
+  id         TEXT PRIMARY KEY,
+  round_id   TEXT NOT NULL,
+  player_id  TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_comments_round   ON comments(round_id);
+CREATE INDEX IF NOT EXISTS idx_comments_updated ON comments(updated_at);

@@ -15,7 +15,11 @@
  *
  * Names nobody has claimed stay open on purpose: you need to be able to keep
  * a card for a friend who has not joined yet. The course book is common
- * ground for everyone in the group.
+ * ground for everyone in the group, and so are comments.
+ *
+ * One player is the group's admin — the first to claim a card, after which an
+ * admin can pass the role on. An admin can remove a player, clear a forgotten
+ * PIN, and delete anybody's round or comment.
  */
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
@@ -64,8 +68,9 @@ async function hashPin(pin, salt) {
 async function sessionOf(request, env) {
   const token = request.headers.get("x-player-token");
   if (!token) return null;
-  const row = await env.DB.prepare("SELECT token, player_id, created_at FROM sessions WHERE token = ?")
-    .bind(token).first();
+  const row = await env.DB.prepare(
+    "SELECT s.token, s.player_id, s.created_at, p.is_admin FROM sessions s " +
+    "JOIN players p ON p.id = s.player_id WHERE s.token = ?").bind(token).first();
   if (!row) return null;
   if (Date.now() - row.created_at > TOKEN_TTL) {
     await env.DB.prepare("DELETE FROM sessions WHERE token = ?").bind(token).run();
@@ -81,10 +86,11 @@ function joinCodeOk(request, env) {
 /* ---------- reading ---------- */
 async function readState(env, since) {
   const s = Number(since) || 0;
-  const [players, rounds, courses] = await Promise.all([
-    env.DB.prepare("SELECT id, name, body, updated_at, deleted, (pin_hash IS NOT NULL) AS claimed FROM players WHERE updated_at > ?").bind(s).all(),
+  const [players, rounds, courses, comments] = await Promise.all([
+    env.DB.prepare("SELECT id, name, body, updated_at, deleted, is_admin, (pin_hash IS NOT NULL) AS claimed FROM players WHERE updated_at > ?").bind(s).all(),
     env.DB.prepare("SELECT id, player_id, body, updated_at, deleted FROM rounds WHERE updated_at > ?").bind(s).all(),
-    env.DB.prepare("SELECT id, body, updated_at, deleted FROM courses WHERE updated_at > ?").bind(s).all()
+    env.DB.prepare("SELECT id, body, updated_at, deleted FROM courses WHERE updated_at > ?").bind(s).all(),
+    env.DB.prepare("SELECT id, round_id, player_id, body, updated_at, deleted FROM comments WHERE updated_at > ?").bind(s).all()
   ]);
   const unpack = (row, extra) => {
     let body = {};
@@ -93,16 +99,20 @@ async function readState(env, since) {
   };
   return {
     now: Date.now(),
-    players: (players.results || []).map(r => unpack(r, { name: r.name, claimed: !!r.claimed })),
+    players: (players.results || []).map(r => unpack(r, { name: r.name, claimed: !!r.claimed, admin: !!r.is_admin })),
     rounds: (rounds.results || []).map(r => unpack(r, { playerId: r.player_id })),
-    courses: (courses.results || []).map(r => unpack(r))
+    courses: (courses.results || []).map(r => unpack(r)),
+    comments: (comments.results || []).map(r => ({
+      id: r.id, roundId: r.round_id, playerId: r.player_id, body: r.body,
+      updatedAt: r.updated_at, deleted: !!r.deleted
+    }))
   };
 }
 
 /* ---------- writing ---------- */
 function bodyOf(rec, drop) {
   const body = Object.assign({}, rec);
-  ["id", "updatedAt", "deleted", "claimed"].concat(drop || []).forEach(k => delete body[k]);
+  ["id", "updatedAt", "deleted", "claimed", "admin"].concat(drop || []).forEach(k => delete body[k]);
   return JSON.stringify(body);
 }
 
@@ -112,6 +122,7 @@ async function applyWrites(env, payload, session) {
   const refused = [];
   const take = (list) => (Array.isArray(list) ? list : []).slice(0, MAX_RECORDS);
   const mine = session ? session.player_id : null;
+  const isAdmin = !!(session && session.is_admin);
 
   /* Which of the players being touched are already claimed, and by whom. */
   const touched = new Set();
@@ -125,8 +136,9 @@ async function applyWrites(env, payload, session) {
       ids.map(() => "?").join(",") + ")").bind(...ids).all();
     (rows.results || []).forEach(r => claimed.add(r.id));
   }
-  /* A claimed card may only be written by the device holding its PIN. */
-  const mayWrite = (playerId) => !claimed.has(playerId) || playerId === mine;
+  /* A claimed card may only be written by the device holding its PIN —
+     unless you are the group's admin. */
+  const mayWrite = (playerId) => isAdmin || !claimed.has(playerId) || playerId === mine;
 
   for (const p of take(payload.players)) {
     if (!p || !p.id) continue;
@@ -148,6 +160,19 @@ async function applyWrites(env, payload, session) {
       "WHERE excluded.updated_at >= rounds.updated_at")
       .bind(r.id, r.playerId, bodyOf(r, ["playerId"]), now, r.deleted ? 1 : 0));
   }
+  for (const cm of take(payload.comments)) {
+    if (!cm || !cm.id || !cm.roundId) continue;
+    const author = cm.playerId;
+    /* you write your own comments; an admin may remove any */
+    const allowed = (author && author === mine) || (isAdmin && cm.deleted);
+    if (!allowed) { refused.push(cm.id); continue; }
+    stmts.push(env.DB.prepare(
+      "INSERT INTO comments (id, round_id, player_id, body, updated_at, deleted) VALUES (?,?,?,?,?,?) " +
+      "ON CONFLICT(id) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at, " +
+      "deleted = excluded.deleted WHERE comments.player_id = excluded.player_id OR excluded.deleted = 1")
+      .bind(cm.id, cm.roundId, author || mine, String(cm.body || "").slice(0, 1000), now, cm.deleted ? 1 : 0));
+  }
+
   for (const c of take(payload.courses)) {
     if (!c || !c.id) continue;
     stmts.push(env.DB.prepare(
@@ -188,18 +213,23 @@ export default {
             .bind(String(name || "").trim()).first();
       if (row && row.pin_hash) return bad("already_claimed", 409);
 
+      /* Whoever claims first runs the group; they can pass it on later. */
+      const anyAdmin = await env.DB.prepare(
+        "SELECT 1 AS x FROM players WHERE is_admin = 1 AND deleted = 0 LIMIT 1").first();
+      const firstClaim = !anyAdmin;
+
       const salt = randomToken(16);
       const hash = await hashPin(pin, salt);
       if (row) {
-        await env.DB.prepare("UPDATE players SET pin_hash = ?, pin_salt = ?, updated_at = ? WHERE id = ?")
-          .bind(hash, salt, now, row.id).run();
+        await env.DB.prepare("UPDATE players SET pin_hash = ?, pin_salt = ?, is_admin = ?, updated_at = ? WHERE id = ?")
+          .bind(hash, salt, firstClaim ? 1 : 0, now, row.id).run();
       } else {
         const clean = String(name || "").trim().slice(0, 80);
         if (!clean) return bad("name_required");
         row = { id: "p_" + randomToken(9) };
         await env.DB.prepare(
-          "INSERT INTO players (id, name, pin_hash, pin_salt, body, updated_at, deleted) VALUES (?,?,?,?,?,?,0)")
-          .bind(row.id, clean, hash, salt, JSON.stringify({ startHi: null, createdAt: now }), now).run();
+          "INSERT INTO players (id, name, pin_hash, pin_salt, body, updated_at, deleted, is_admin) VALUES (?,?,?,?,?,?,0,?)")
+          .bind(row.id, clean, hash, salt, JSON.stringify({ startHi: null, createdAt: now }), now, firstClaim ? 1 : 0).run();
       }
       const token = randomToken(32);
       await env.DB.prepare("INSERT INTO sessions (token, player_id, created_at) VALUES (?,?,?)")
@@ -218,6 +248,55 @@ export default {
       await env.DB.prepare("INSERT INTO sessions (token, player_id, created_at) VALUES (?,?,?)")
         .bind(token, row.id, Date.now()).run();
       return json({ token, playerId: row.id });
+    }
+
+    /* ---- what only an admin may do ---- */
+    if (url.pathname.startsWith("/api/admin/")) {
+      const session = await sessionOf(request, env);
+      if (!session) return bad("signed_out", 401);
+      if (!session.is_admin) return bad("not_admin", 403);
+      const { playerId } = await request.json().catch(() => ({}));
+      const now = Date.now();
+
+      /* Remove a player, and their rounds and comments with them. */
+      if (url.pathname === "/api/admin/remove-player") {
+        if (!playerId) return bad("player_required");
+        if (playerId === session.player_id) return bad("cannot_remove_yourself", 409);
+        await env.DB.batch([
+          env.DB.prepare("UPDATE players SET deleted = 1, updated_at = ? WHERE id = ?").bind(now, playerId),
+          env.DB.prepare("UPDATE rounds SET deleted = 1, updated_at = ? WHERE player_id = ?").bind(now, playerId),
+          env.DB.prepare("UPDATE comments SET deleted = 1, updated_at = ? WHERE player_id = ?").bind(now, playerId),
+          env.DB.prepare("DELETE FROM sessions WHERE player_id = ?").bind(playerId)
+        ]);
+        return json({ ok: true });
+      }
+
+      /* Let somebody re-claim a card whose PIN was forgotten. */
+      if (url.pathname === "/api/admin/clear-pin") {
+        if (!playerId) return bad("player_required");
+        await env.DB.batch([
+          env.DB.prepare("UPDATE players SET pin_hash = NULL, pin_salt = NULL, updated_at = ? WHERE id = ?")
+            .bind(now, playerId),
+          env.DB.prepare("DELETE FROM sessions WHERE player_id = ?").bind(playerId)
+        ]);
+        return json({ ok: true });
+      }
+
+      /* Hand the group over, or share it. */
+      if (url.pathname === "/api/admin/set-admin") {
+        const { makeAdmin } = await request.clone().json().catch(() => ({}));
+        if (!playerId) return bad("player_required");
+        if (playerId === session.player_id && makeAdmin === false) {
+          const others = await env.DB.prepare(
+            "SELECT 1 AS x FROM players WHERE is_admin = 1 AND deleted = 0 AND id != ? LIMIT 1")
+            .bind(session.player_id).first();
+          if (!others) return bad("group_needs_an_admin", 409);
+        }
+        await env.DB.prepare("UPDATE players SET is_admin = ?, updated_at = ? WHERE id = ?")
+          .bind(makeAdmin === false ? 0 : 1, now, playerId).run();
+        return json({ ok: true });
+      }
+      return bad("not_found", 404);
     }
 
     if (url.pathname === "/api/signout" && request.method === "POST") {
