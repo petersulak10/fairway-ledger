@@ -38,6 +38,27 @@ free plan allows 10ms of CPU per request and PBKDF2 blows straight through it
 PIN is 10,000 guesses, so no hash saves it if the database leaks. The PIN stops
 one group member editing another's card; the join code is the real perimeter.
 
+## The admin
+
+The first player to claim a card runs the group. An admin can remove a player,
+clear a forgotten PIN, and make somebody else an admin — and can edit anybody's
+card, which is how a mistake gets fixed. There is always at least one admin: the
+last one cannot step down until somebody else is promoted.
+
+Removing a player soft-deletes them together with their rounds and comments, so
+nothing is really gone from the database — it just stops appearing.
+
+**A trap worth remembering.** Admin actions originally reset the client's sync
+marker and then ran a full sync, which pushed the device's stale copy of the
+removed player straight back up and revived them. Anything that changes the
+group from the server side must pull without pushing (`refreshAll`).
+
+## Comments
+
+Anyone signed in can comment on any round. You may delete your own; an admin may
+delete any. Comments sync like every other record and are capped at 1,000
+characters server-side.
+
 ## The API
 
 | Route | Does |
@@ -48,6 +69,9 @@ one group member editing another's card; the join code is the real perimeter.
 | `POST /api/claim` | claim a name with a PIN, returns a token |
 | `POST /api/signin` | same player, another device |
 | `POST /api/signout` | drop this device's token |
+| `POST /api/admin/remove-player` | admin only: remove a player, their rounds and comments |
+| `POST /api/admin/clear-pin` | admin only: release a card whose PIN was forgotten |
+| `POST /api/admin/set-admin` | admin only: promote or demote somebody |
 
 Writes are last-writer-wins per record: a row only moves if the incoming
 `updatedAt` is at least as new as the stored one. Deletions travel as
