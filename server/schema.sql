@@ -51,3 +51,15 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 CREATE INDEX IF NOT EXISTS idx_comments_round   ON comments(round_id);
 CREATE INDEX IF NOT EXISTS idx_comments_updated ON comments(updated_at);
+
+-- Photos attached to a round. The picture lives in KV; this indexes it.
+CREATE TABLE IF NOT EXISTS photos (
+  id         TEXT PRIMARY KEY,
+  round_id   TEXT NOT NULL,
+  player_id  TEXT NOT NULL,
+  caption    TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL,
+  deleted    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_photos_round   ON photos(round_id);
+CREATE INDEX IF NOT EXISTS idx_photos_updated ON photos(updated_at);

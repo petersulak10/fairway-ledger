@@ -21747,7 +21747,7 @@ const DEVICE_KEY = "fairway-ledger-device";
 let S = { players: [], rounds: [], courses: [], meta: {} };
 let LOCAL = { me: null, sync: null, lastPull: 0 };
 
-function blankState() { return { players: [], rounds: [], courses: [], comments: [], meta: { created: now() } }; }
+function blankState() { return { players: [], rounds: [], courses: [], comments: [], photos: [], meta: { created: now() } }; }
 
 let saveLocalSoon = false;
 function loadLocal() {
@@ -21759,6 +21759,7 @@ function loadLocal() {
   if (!S.rounds) S.rounds = [];
   if (!S.courses) S.courses = [];
   if (!S.comments) S.comments = [];
+  if (!S.photos) S.photos = [];
   if (!S.meta) S.meta = {};
   /* v2 migration: the bundled course list used to be copied into storage.
      It is now a read-only catalogue, so drop the old copies and keep only
@@ -22090,6 +22091,8 @@ const iAmAdmin = () => {
   const me = signedInAs() ? playerById(signedInAs()) : null;
   return !!(me && me.admin);
 };
+const photosFor = (roundId) =>
+  sortBy((S.photos || []).filter(x => x.roundId === roundId && !x.deleted), x => x.updatedAt || 0);
 const commentsFor = (roundId) =>
   sortBy((S.comments || []).filter(c => c.roundId === roundId && !c.deleted), c => c.updatedAt || 0);
 const canEditPlayer = (id) => {
@@ -22101,7 +22104,7 @@ const canEditPlayer = (id) => {
 function mergeState(remote) {
   if (!remote || typeof remote !== "object") return 0;
   let changed = 0;
-  ["players", "rounds", "courses", "comments"].forEach(key => {
+  ["players", "rounds", "courses", "comments", "photos"].forEach(key => {
     const map = new Map((S[key] || []).map(x => [x.id, x]));
     (remote[key] || []).forEach(rx => {
       if (!rx || !rx.id) return;
@@ -22117,7 +22120,8 @@ function mergeState(remote) {
 function outbox() {
   const since = LOCAL.syncedAt || 0;
   const mine = (list) => (list || []).filter(x => (x.updatedAt || 0) > since);
-  return { players: mine(S.players), rounds: mine(S.rounds), courses: mine(S.courses), comments: mine(S.comments) };
+  return { players: mine(S.players), rounds: mine(S.rounds), courses: mine(S.courses),
+           comments: mine(S.comments), photos: mine(S.photos) };
 }
 
 async function syncNow(quiet) {
@@ -22896,8 +22900,49 @@ function viewRound(id) {
       tile("Greens", a.girHoles ? Math.round(a.gir / a.girHoles * 100) + "%" : "—", a.girHoles ? a.gir + " of " + a.girHoles : "not recorded") +
       tile("Putts", a.putts == null ? "—" : a.putts, a.puttHoles ? plural(a.puttHoles, "hole") + " recorded" : "not recorded") +
       tile("Birdies or better", a.dist.birdie + a.dist.eagle, a.dist.par + " pars · " + a.dist.bogey + " bogeys") +
-    '</div>' + commentThread(r);
+    '</div>' + photoStrip(r) + commentThread(r);
 }
+/* Shrink a picture in the browser before it goes anywhere — a phone photo is
+   several megabytes and none of that detail survives a thumbnail. */
+function shrinkImage(file, maxSide, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, (maxSide || 1600) / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error("encode")), "image/jpeg", quality || 0.82);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("decode")); };
+    img.src = url;
+  });
+}
+
+function photoStrip(round) {
+  if (!syncOn()) return "";
+  const list = photosFor(round.id);
+  const me = signedInAs();
+  if (!list.length && !me) return "";
+  return '<div class="card card-pad stack" style="margin-top:14px">' +
+    '<div class="spread"><h2 class="sect-title">Photos' + (list.length ? ' <span class="muted">' + list.length + '</span>' : '') + '</h2>' +
+      (me ? '<label class="btn sm" style="cursor:pointer">Add a photo' +
+            '<input type="file" accept="image/*" data-act="photo-file" data-id="' + round.id + '" hidden></label>' : '') +
+    '</div>' +
+    (list.length
+      ? '<div class="shots">' + list.map(ph =>
+          '<figure class="shot"><a href="/photo/' + esc(ph.id) + '" target="_blank" rel="noopener">' +
+          '<img src="/photo/' + esc(ph.id) + '" alt="' + esc(ph.caption || "Photo from this round") + '" decoding="async"></a>' +
+          ((me && ph.playerId === me) || iAmAdmin()
+            ? '<button class="shot-x" data-act="delete-photo" data-id="' + ph.id + '" aria-label="Delete photo">×</button>' : '') +
+          '</figure>').join("") + '</div>'
+      : '<p class="muted small">No photos from this round yet.</p>') +
+  '</div>';
+}
+
 function commentThread(round) {
   if (!syncOn()) return "";
   const list = commentsFor(round.id);
@@ -23713,6 +23758,36 @@ const ACTIONS = {
         : "Could not save that just now — check your connection.";
     }
   },
+  /* ---- photos ---- */
+  "photo-file": async (el) => {
+    const file = el.files && el.files[0];
+    el.value = "";
+    if (!file) return;
+    if (!signedInAs()) { toast("Sign in as yourself first."); return; }
+    toast("Adding the photo…");
+    try {
+      const blob = await shrinkImage(file, 1600, 0.82);
+      const res = await fetch(API + "/photo?roundId=" + encodeURIComponent(el.dataset.id), {
+        method: "POST",
+        headers: { "content-type": "image/jpeg", "x-join-code": joinCode(), "x-player-token": LOCAL.token },
+        body: blob
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "upload");
+      S.photos.push({ id: d.id, roundId: d.roundId, playerId: d.playerId, caption: "", updatedAt: d.updatedAt });
+      saveLocal(); render();
+      toast("Photo added");
+    } catch (e) {
+      toast(e.message === "too_large" ? "That picture is too big even after shrinking."
+        : "Could not add that photo.");
+    }
+  },
+  "delete-photo": (el) => {
+    const ph = (S.photos || []).find(x => x.id === el.dataset.id);
+    if (!ph || !confirm("Delete this photo?")) return;
+    ph.deleted = true; touch(ph); commit(); schedulePush();
+  },
+
   /* ---- comments ---- */
   "comment-input": () => {},
   "post-comment": (el) => {
@@ -24273,4 +24348,20 @@ input[type="file"]::file-selector-button {
 .cmt-body p { font-size: 14px; color: var(--ink-2); overflow-wrap: anywhere; }
 .btn.ghost.danger { color: var(--over); }
 .btn.ghost.danger:hover { background: var(--over-wash); }
+</style>
+
+<style>
+/* photos from a round */
+.shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.shot { position: relative; margin: 0; }
+.shot img {
+  width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block;
+  border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2);
+}
+.shot-x {
+  position: absolute; top: 6px; right: 6px; width: 24px; height: 24px;
+  border-radius: 50%; border: none; cursor: pointer; line-height: 1; font-size: 15px;
+  background: rgba(8,16,13,.62); color: #fff;
+}
+.shot-x:hover { background: rgba(8,16,13,.85); }
 </style>

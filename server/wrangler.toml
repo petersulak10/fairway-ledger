@@ -13,6 +13,11 @@ binding = "DB"
 database_name = "fairway-ledger"
 database_id = "55d366ec-b38b-40dd-a108-3520af1f6b96"
 
+# Photos: the picture bytes live here, the index lives in D1.
+[[kv_namespaces]]
+binding = "PHOTOS"
+id = "23dcce0e51e44cf89155a2afed21fa12"
+
 [vars]
 # The group's join code. Change it here, redeploy, and everyone re-enters it.
 JOIN_CODE = "links57"

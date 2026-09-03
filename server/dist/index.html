@@ -21747,7 +21747,7 @@ const DEVICE_KEY = "fairway-ledger-device";
 let S = { players: [], rounds: [], courses: [], meta: {} };
 let LOCAL = { me: null, sync: null, lastPull: 0 };
 
-function blankState() { return { players: [], rounds: [], courses: [], comments: [], meta: { created: now() } }; }
+function blankState() { return { players: [], rounds: [], courses: [], comments: [], photos: [], meta: { created: now() } }; }
 
 let saveLocalSoon = false;
 function loadLocal() {
@@ -21759,6 +21759,7 @@ function loadLocal() {
   if (!S.rounds) S.rounds = [];
   if (!S.courses) S.courses = [];
   if (!S.comments) S.comments = [];
+  if (!S.photos) S.photos = [];
   if (!S.meta) S.meta = {};
   /* v2 migration: the bundled course list used to be copied into storage.
      It is now a read-only catalogue, so drop the old copies and keep only
@@ -21867,9 +21868,38 @@ function effectiveHi(playerId) {
   return p && p.startHi != null ? p.startHi : null;
 }
 
+/* ---------- the season you are looking at ----------------------------
+   Averages, form and records honour this window. A handicap index never
+   does — that always reads the last 20 counting rounds, whenever played.
+--------------------------------------------------------------------- */
+const SEASONS = [
+  { k: "all", label: "All time" },
+  { k: "year", label: "This year" },
+  { k: "d90", label: "Last 90 days" }
+];
+function inSeason(round) {
+  const k = LOCAL.season || "all";
+  if (k === "all") return true;
+  const d = new Date(round.date + "T12:00:00");
+  if (isNaN(d)) return true;
+  if (k === "year") return d.getFullYear() === new Date().getFullYear();
+  if (k === "d90") return (Date.now() - d.getTime()) <= 90 * 864e5;
+  return true;
+}
+const seasonLabel = () => (SEASONS.find(x => x.k === (LOCAL.season || "all")) || SEASONS[0]).label;
+
+/** Average to par over the most recent complete rounds — how they are playing now. */
+function form(playerId, count) {
+  const rs = sortBy(liveRounds().filter(r => r.playerId === playerId), r => r.date, "desc")
+    .map(analyse).filter(a => a && a.complete && a.holes.length === 18).slice(0, count || 5);
+  if (!rs.length) return null;
+  return { n: rs.length, avg: rs.reduce((t, a) => t + (a.gross - a.par), 0) / rs.length };
+}
+
 function playerStats(playerId) {
-  const rs = liveRounds().filter(r => r.playerId === playerId).map(analyse).filter(a => a && a.played);
-  const hist = playerHistory(playerId);
+  const rs = liveRounds().filter(r => r.playerId === playerId && inSeason(r))
+    .map(analyse).filter(a => a && a.played);
+  const hist = playerHistory(playerId);          /* the index ignores the season */
   const full = rs.filter(a => a.complete && a.holes.length === 18);
   const agg = { rounds: rs.length, full: full.length, index: hist.index, trend: hist.trend };
   agg.avgGross = full.length ? full.reduce((a, x) => a + x.gross, 0) / full.length : null;
@@ -21887,6 +21917,7 @@ function playerStats(playerId) {
   }, { eagle: 0, birdie: 0, par: 0, bogey: 0, double: 0, worse: 0 });
   agg.holesPlayed = rs.reduce((a, x) => a + x.played, 0);
   agg.last = sortBy(rs, a => a.round.date, "desc")[0] || null;
+  agg.form = form(playerId, 5);
   return agg;
 }
 </script>
@@ -22060,6 +22091,8 @@ const iAmAdmin = () => {
   const me = signedInAs() ? playerById(signedInAs()) : null;
   return !!(me && me.admin);
 };
+const photosFor = (roundId) =>
+  sortBy((S.photos || []).filter(x => x.roundId === roundId && !x.deleted), x => x.updatedAt || 0);
 const commentsFor = (roundId) =>
   sortBy((S.comments || []).filter(c => c.roundId === roundId && !c.deleted), c => c.updatedAt || 0);
 const canEditPlayer = (id) => {
@@ -22071,7 +22104,7 @@ const canEditPlayer = (id) => {
 function mergeState(remote) {
   if (!remote || typeof remote !== "object") return 0;
   let changed = 0;
-  ["players", "rounds", "courses", "comments"].forEach(key => {
+  ["players", "rounds", "courses", "comments", "photos"].forEach(key => {
     const map = new Map((S[key] || []).map(x => [x.id, x]));
     (remote[key] || []).forEach(rx => {
       if (!rx || !rx.id) return;
@@ -22087,7 +22120,8 @@ function mergeState(remote) {
 function outbox() {
   const since = LOCAL.syncedAt || 0;
   const mine = (list) => (list || []).filter(x => (x.updatedAt || 0) > since);
-  return { players: mine(S.players), rounds: mine(S.rounds), courses: mine(S.courses), comments: mine(S.comments) };
+  return { players: mine(S.players), rounds: mine(S.rounds), courses: mine(S.courses),
+           comments: mine(S.comments), photos: mine(S.photos) };
 }
 
 async function syncNow(quiet) {
@@ -22600,6 +22634,8 @@ function viewPlay() {
           avatar(p) + esc(p ? p.name : "?") + ' <span class="num tiny">' + done + '/' + holes.length + '</span></button>';
       }).join("") + '</div>' : "";
 
+  const game = d.playerIds.length > 1 ? liveGame(d, course, holes) : "";
+
   const entry =
     '<div class="card">' +
       '<div class="card-pad spread" style="border-bottom:1px solid var(--line)">' +
@@ -22621,7 +22657,87 @@ function viewPlay() {
       '</div>' +
     '</div>';
 
-  return head("New round", fmtDate(d.date) + " · " + course.club) + tabs + '<div class="stack">' + entry + setup + players + '</div>';
+  return head("New round", fmtDate(d.date) + " · " + course.club) + tabs + game +
+    '<div class="stack">' + entry + setup + players + '</div>';
+}
+
+/* ---------- the game, while you are still out there -------------------
+   Everything here is worked out from the card as it stands: Stableford
+   for everyone, match play when exactly two are out, and skins — lowest
+   net on a hole takes it, a tie carries it to the next.
+--------------------------------------------------------------------- */
+function liveGame(d, course, holes) {
+  const ids = d.playerIds;
+  const each = ids.map(pid => {
+    const full = courseHandicap(effectiveHi(pid), teeOf(course, d.teeId).slope,
+                               teeOf(course, d.teeId).cr, coursePar(course, 18));
+    const ch = full == null ? null : (holes.length === 9 ? Math.round(full / 2) : full);
+    const rows = d.scores[pid] || [];
+    let points = 0, gross = 0, played = 0, parPlayed = 0;
+    const net = holes.map((h, i) => {
+      const v = num((rows[i] || {}).s);
+      if (v == null) return null;
+      gross += v; played++; parPlayed += h.par;
+      points += stablefordPoints(v, h.par, strokesOnHole(ch, h.si));
+      return v - strokesOnHole(ch, h.si);
+    });
+    return { pid, name: (playerById(pid) || {}).name || "?", ch, points, gross, played, parPlayed, net };
+  });
+
+  /* skins: lowest net takes the hole, a tie carries it forward */
+  const skins = {};
+  ids.forEach(p => (skins[p] = 0));
+  let carry = 1, anySkins = false;
+  holes.forEach((h, i) => {
+    const scored = each.filter(e => e.net[i] != null);
+    if (scored.length !== each.length || !each.length) return;
+    const low = Math.min.apply(null, scored.map(e => e.net[i]));
+    const winners = scored.filter(e => e.net[i] === low);
+    if (winners.length === 1) { skins[winners[0].pid] += carry; carry = 1; anySkins = true; }
+    else carry++;
+  });
+
+  /* match play, but only when it is actually a match */
+  let match = null;
+  if (each.length === 2) {
+    const [a, b] = each;
+    let up = 0, done = 0;
+    holes.forEach((h, i) => {
+      if (a.net[i] == null || b.net[i] == null) return;
+      done++;
+      if (a.net[i] < b.net[i]) up++; else if (b.net[i] < a.net[i]) up--;
+    });
+    const left = holes.length - done;
+    match = { a, b, up, done, left,
+      text: up === 0 ? "All square"
+        : (up > 0 ? a.name : b.name) + " " + Math.abs(up) + " up" +
+          (Math.abs(up) > left && left >= 0 && done > 0 ? " — match over" : left ? " with " + left + " to play" : "") };
+  }
+
+  const anyPlayed = each.some(e => e.played);
+  if (!anyPlayed) return "";
+
+  const board = sortBy(each, e => -e.points).map((e, i) =>
+    '<tr><td class="muted num">' + (i + 1) + '</td>' +
+    '<td><div class="row-tight">' + avatar(playerById(e.pid)) + '<b>' + esc(e.name) + '</b></div></td>' +
+    '<td class="n">' + (e.played ? e.gross : "—") + '</td>' +
+    '<td class="n ' + (e.played ? parClass(e.gross - e.parPlayed) : "") + '">' +
+      (e.played ? relToPar(e.gross - e.parPlayed) : "—") + '</td>' +
+    '<td class="n"><b>' + e.points + '</b></td>' +
+    (anySkins ? '<td class="n">' + (skins[e.pid] || "") + '</td>' : '') +
+    '<td class="n tiny muted">' + e.played + '/' + holes.length + '</td></tr>').join("");
+
+  return '<div class="card card-pad stack" style="margin-bottom:14px">' +
+    '<div class="spread"><h2 class="sect-title">How it stands</h2>' +
+      (match ? '<span class="chip accent">' + esc(match.text) + '</span>' : '') + '</div>' +
+    '<div class="table-wrap"><table class="tbl"><thead><tr><th>#</th><th>Player</th>' +
+      '<th class="n">Gross</th><th class="n">±</th><th class="n">Pts</th>' +
+      (anySkins ? '<th class="n">Skins</th>' : '') + '<th class="n">Holes</th></tr></thead><tbody>' +
+      board + '</tbody></table></div>' +
+    '<p class="help">Stableford runs off each player\'s course handicap.' +
+      (anySkins ? ' Skins go to the lowest net on a hole; a tie carries it to the next.' : '') +
+      (match ? ' Match play is on net scores.' : '') + '</p>' +
+  '</div>';
 }
 
 function holeRow(h, i, e, received) {
@@ -22784,8 +22900,49 @@ function viewRound(id) {
       tile("Greens", a.girHoles ? Math.round(a.gir / a.girHoles * 100) + "%" : "—", a.girHoles ? a.gir + " of " + a.girHoles : "not recorded") +
       tile("Putts", a.putts == null ? "—" : a.putts, a.puttHoles ? plural(a.puttHoles, "hole") + " recorded" : "not recorded") +
       tile("Birdies or better", a.dist.birdie + a.dist.eagle, a.dist.par + " pars · " + a.dist.bogey + " bogeys") +
-    '</div>' + commentThread(r);
+    '</div>' + photoStrip(r) + commentThread(r);
 }
+/* Shrink a picture in the browser before it goes anywhere — a phone photo is
+   several megabytes and none of that detail survives a thumbnail. */
+function shrinkImage(file, maxSide, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, (maxSide || 1600) / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error("encode")), "image/jpeg", quality || 0.82);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("decode")); };
+    img.src = url;
+  });
+}
+
+function photoStrip(round) {
+  if (!syncOn()) return "";
+  const list = photosFor(round.id);
+  const me = signedInAs();
+  if (!list.length && !me) return "";
+  return '<div class="card card-pad stack" style="margin-top:14px">' +
+    '<div class="spread"><h2 class="sect-title">Photos' + (list.length ? ' <span class="muted">' + list.length + '</span>' : '') + '</h2>' +
+      (me ? '<label class="btn sm" style="cursor:pointer">Add a photo' +
+            '<input type="file" accept="image/*" data-act="photo-file" data-id="' + round.id + '" hidden></label>' : '') +
+    '</div>' +
+    (list.length
+      ? '<div class="shots">' + list.map(ph =>
+          '<figure class="shot"><a href="/photo/' + esc(ph.id) + '" target="_blank" rel="noopener">' +
+          '<img src="/photo/' + esc(ph.id) + '" alt="' + esc(ph.caption || "Photo from this round") + '" loading="lazy"></a>' +
+          ((me && ph.playerId === me) || iAmAdmin()
+            ? '<button class="shot-x" data-act="delete-photo" data-id="' + ph.id + '" aria-label="Delete photo">×</button>' : '') +
+          '</figure>').join("") + '</div>'
+      : '<p class="muted small">No photos from this round yet.</p>') +
+  '</div>';
+}
+
 function commentThread(round) {
   if (!syncOn()) return "";
   const list = commentsFor(round.id);
@@ -22891,14 +23048,114 @@ const BOARD_COLS = [
   { k: "avgToPar", label: "Avg to par", get: s => s.avgToPar, fmt: v => v == null ? "—" : relToPar(Math.round(v * 10) / 10), dir: "asc", cls: true },
   { k: "best", label: "Best", get: s => s.best ? s.best.gross - s.best.par : null, fmt: v => v == null ? "—" : relToPar(v), dir: "asc", cls: true },
   { k: "avgPoints", label: "Stableford", get: s => s.avgPoints, fmt: v => v == null ? "—" : v.toFixed(1), dir: "desc" },
+  { k: "form", label: "Form", get: s => s.form ? s.form.avg : null,
+    fmt: v => v == null ? "—" : relToPar(Math.round(v * 10) / 10), dir: "asc", cls: true },
   { k: "gir", label: "GIR", get: s => s.gir, fmt: v => v == null ? "—" : Math.round(v * 100) + "%", dir: "desc" },
   { k: "avgPutts", label: "Putts", get: s => s.avgPutts, fmt: v => v == null ? "—" : v.toFixed(1), dir: "asc" }
 ];
+/* ---------- head to head -------------------------------------------
+   Two players are counted as having met when they have a complete card
+   at the same course on the same day — which is what a fourball is.
+------------------------------------------------------------------- */
+function headToHead(aId, bId) {
+  const key = (r) => r.date + "|" + r.courseId;
+  const mine = new Map();
+  liveRounds().filter(r => r.playerId === aId && inSeason(r)).forEach(r => mine.set(key(r), r));
+  const met = [];
+  liveRounds().filter(r => r.playerId === bId && inSeason(r)).forEach(r => {
+    const other = mine.get(key(r));
+    if (other) met.push([other, r]);
+  });
+
+  const out = { played: 0, grossA: 0, grossB: 0, halved: 0, netA: 0, netB: 0, netHalved: 0, rows: [] };
+  sortBy(met, pair => pair[0].date, "desc").forEach(([ra, rb]) => {
+    const a = analyse(ra), b = analyse(rb);
+    if (!a || !b || !a.complete || !b.complete) return;
+    out.played++;
+    if (a.gross < b.gross) out.grossA++; else if (b.gross < a.gross) out.grossB++; else out.halved++;
+    const na = a.net == null ? a.gross : a.net, nb = b.net == null ? b.gross : b.net;
+    if (na < nb) out.netA++; else if (nb < na) out.netB++; else out.netHalved++;
+    out.rows.push({ date: ra.date, course: a.course, a, b });
+  });
+  return out;
+}
+
+function h2hPanel() {
+  const players = sortBy(S.players, p => p.name);
+  if (players.length < 2) return "";
+  const aId = LOCAL.h2hA && playerById(LOCAL.h2hA) ? LOCAL.h2hA : (LOCAL.me || players[0].id);
+  const bId = LOCAL.h2hB && playerById(LOCAL.h2hB) && LOCAL.h2hB !== aId
+    ? LOCAL.h2hB : (players.find(p => p.id !== aId) || {}).id;
+  const A = playerById(aId), B = playerById(bId);
+  if (!A || !B) return "";
+  const h = headToHead(aId, bId);
+
+  const pick = (act, value) => '<select data-act="' + act + '">' + players.map(p =>
+    '<option value="' + p.id + '"' + (p.id === value ? " selected" : "") + '>' + esc(p.name) + '</option>').join("") + '</select>';
+
+  return '<div class="card card-pad stack" style="margin-top:14px">' +
+    '<h2 class="sect-title">Head to head</h2>' +
+    '<div class="row" style="gap:10px"><div class="field" style="flex:1">' + pick("h2h-a", aId) + '</div>' +
+    '<span class="muted small">against</span>' +
+    '<div class="field" style="flex:1">' + pick("h2h-b", bId) + '</div></div>' +
+    (h.played
+      ? '<div class="grid g3">' +
+          tile("Rounds together", h.played, seasonLabel().toLowerCase()) +
+          tile("On gross", h.grossA + "–" + h.grossB + (h.halved ? " (" + h.halved + " tied)" : ""),
+               esc(A.name) + " v " + esc(B.name)) +
+          tile("On net", h.netA + "–" + h.netB + (h.netHalved ? " (" + h.netHalved + " tied)" : ""),
+               "after handicap") +
+        '</div>' +
+        '<div class="table-wrap"><table class="tbl"><thead><tr><th>Date</th><th>Course</th>' +
+        '<th class="n">' + esc(A.name) + '</th><th class="n">' + esc(B.name) + '</th><th></th></tr></thead><tbody>' +
+        h.rows.slice(0, 10).map(r => {
+          const win = r.a.gross < r.b.gross ? A.name : r.b.gross < r.a.gross ? B.name : "Tied";
+          return '<tr><td>' + fmtDateShort(r.date) + '</td><td>' + courseLine(r.course) + '</td>' +
+            '<td class="n">' + r.a.gross + '</td><td class="n">' + r.b.gross + '</td>' +
+            '<td class="tiny muted">' + esc(win) + '</td></tr>';
+        }).join("") + '</tbody></table></div>'
+      : '<p class="muted small">' + esc(A.name) + ' and ' + esc(B.name) +
+        ' have not played the same course on the same day yet' +
+        ((LOCAL.season || "all") !== "all" ? ' in this window' : '') + '.</p>') +
+  '</div>';
+}
+
+/* ---------- who holds each course ---------------------------------- */
+function courseRecords() {
+  const best = new Map();
+  liveRounds().filter(inSeason).forEach(r => {
+    const a = analyse(r);
+    if (!a || !a.complete || a.holes.length !== 18) return;
+    const cur = best.get(r.courseId);
+    if (!cur || a.gross < cur.a.gross) best.set(r.courseId, { a, round: r });
+  });
+  const rows = sortBy(Array.from(best.values()), x => x.a.gross - x.a.par);
+  if (!rows.length) return "";
+  return '<div class="card card-pad stack" style="margin-top:14px">' +
+    '<h2 class="sect-title">Course records</h2>' +
+    '<div class="table-wrap"><table class="tbl"><thead><tr><th>Course</th><th>Held by</th>' +
+    '<th class="n">Gross</th><th class="n">±</th><th class="n">Date</th></tr></thead><tbody>' +
+    rows.map(x => {
+      const p = playerById(x.round.playerId);
+      return '<tr class="clickable" data-go="/rounds/' + x.round.id + '">' +
+        '<td>' + courseLine(x.a.course) + '</td>' +
+        '<td><div class="row-tight">' + avatar(p) + '<b>' + esc(p ? p.name : "—") + '</b></div></td>' +
+        '<td class="n"><b>' + x.a.gross + '</b></td>' +
+        '<td class="n ' + parClass(x.a.gross - x.a.par) + '">' + relToPar(x.a.gross - x.a.par) + '</td>' +
+        '<td class="n tiny muted">' + fmtDateShort(x.round.date) + '</td></tr>';
+    }).join("") + '</tbody></table></div>' +
+    '<p class="help">Best complete 18-hole card at each course, ' + seasonLabel().toLowerCase() + '.</p>' +
+  '</div>';
+}
+
 function viewLeaderboard() {
   const sortKey = LOCAL.boardSort || "index";
   const col = BOARD_COLS.find(c => c.k === sortKey) || BOARD_COLS[0];
   const rows = sortBy(S.players.map(p => ({ p, s: playerStats(p.id) })), x => col.get(x.s), col.dir);
-  return head("Leaderboard", "Ranked by " + col.label.toLowerCase() + " — tap a column to re-sort") +
+  return head("Leaderboard", "Ranked by " + col.label.toLowerCase() + " · " + seasonLabel().toLowerCase(),
+    '<div class="seg">' + SEASONS.map(x =>
+      '<button data-act="season" data-v="' + x.k + '" class="' + ((LOCAL.season || "all") === x.k ? "on" : "") + '">' +
+      esc(x.label) + '</button>').join("") + '</div>') +
     '<div class="card">' + (S.players.length
       ? '<div class="table-wrap"><table class="tbl"><thead><tr><th>#</th><th>Player</th>' +
         BOARD_COLS.map(c => '<th class="n sortable' + (c.k === sortKey ? '" style="color:var(--ink)' : '') + '" data-act="board-sort" data-v="' + c.k + '">' + c.label + (c.k === sortKey ? " ▾" : "") + '</th>').join("") +
@@ -22912,7 +23169,8 @@ function viewLeaderboard() {
           }).join("") + '</tr>').join("") + '</tbody></table></div>'
       : '<div class="empty"><span>Add the players in your group first.</span>' +
         '<button class="btn primary" data-act="add-player">Add a player</button></div>') + '</div>' +
-    '<p class="help" style="margin-top:10px">A handicap index appears after three completed 18-hole rounds. Averages count completed 18-hole rounds only; fairways, greens and putts use whatever anyone bothered to write down.</p>';
+    h2hPanel() + courseRecords() +
+    '<p class="help" style="margin-top:10px">A handicap index appears after three completed 18-hole rounds and always reads your last 20, whatever season you are looking at. Everything else here follows the season above. <b>Form</b> is your average against par over your last five complete rounds.</p>';
 }
 
 /* ---------- view: courses ---------- */
@@ -23500,6 +23758,36 @@ const ACTIONS = {
         : "Could not save that just now — check your connection.";
     }
   },
+  /* ---- photos ---- */
+  "photo-file": async (el) => {
+    const file = el.files && el.files[0];
+    el.value = "";
+    if (!file) return;
+    if (!signedInAs()) { toast("Sign in as yourself first."); return; }
+    toast("Adding the photo…");
+    try {
+      const blob = await shrinkImage(file, 1600, 0.82);
+      const res = await fetch(API + "/photo?roundId=" + encodeURIComponent(el.dataset.id), {
+        method: "POST",
+        headers: { "content-type": "image/jpeg", "x-join-code": joinCode(), "x-player-token": LOCAL.token },
+        body: blob
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "upload");
+      S.photos.push({ id: d.id, roundId: d.roundId, playerId: d.playerId, caption: "", updatedAt: d.updatedAt });
+      saveLocal(); render();
+      toast("Photo added");
+    } catch (e) {
+      toast(e.message === "too_large" ? "That picture is too big even after shrinking."
+        : "Could not add that photo.");
+    }
+  },
+  "delete-photo": (el) => {
+    const ph = (S.photos || []).find(x => x.id === el.dataset.id);
+    if (!ph || !confirm("Delete this photo?")) return;
+    ph.deleted = true; touch(ph); commit(); schedulePush();
+  },
+
   /* ---- comments ---- */
   "comment-input": () => {},
   "post-comment": (el) => {
@@ -23679,6 +23967,9 @@ const ACTIONS = {
   },
   "round-filter": (el) => { LOCAL.roundFilter = el.dataset.v; saveDevice(); render(); },
   "board-sort": (el) => { LOCAL.boardSort = el.dataset.v; saveDevice(); render(); },
+  "season": (el) => { LOCAL.season = el.dataset.v; saveDevice(); render(); },
+  "h2h-a": (el) => { LOCAL.h2hA = el.value; saveDevice(); render(); },
+  "h2h-b": (el) => { LOCAL.h2hB = el.value; saveDevice(); render(); },
 
   /* courses */
   "course-search": (el) => { LOCAL.courseQ = el.value; searchRemote(el.value); render(); },
@@ -24057,4 +24348,20 @@ input[type="file"]::file-selector-button {
 .cmt-body p { font-size: 14px; color: var(--ink-2); overflow-wrap: anywhere; }
 .btn.ghost.danger { color: var(--over); }
 .btn.ghost.danger:hover { background: var(--over-wash); }
+</style>
+
+<style>
+/* photos from a round */
+.shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.shot { position: relative; margin: 0; }
+.shot img {
+  width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block;
+  border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2);
+}
+.shot-x {
+  position: absolute; top: 6px; right: 6px; width: 24px; height: 24px;
+  border-radius: 50%; border: none; cursor: pointer; line-height: 1; font-size: 15px;
+  background: rgba(8,16,13,.62); color: #fff;
+}
+.shot-x:hover { background: rgba(8,16,13,.85); }
 </style>

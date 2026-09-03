@@ -86,11 +86,12 @@ function joinCodeOk(request, env) {
 /* ---------- reading ---------- */
 async function readState(env, since) {
   const s = Number(since) || 0;
-  const [players, rounds, courses, comments] = await Promise.all([
+  const [players, rounds, courses, comments, photos] = await Promise.all([
     env.DB.prepare("SELECT id, name, body, updated_at, deleted, is_admin, (pin_hash IS NOT NULL) AS claimed FROM players WHERE updated_at > ?").bind(s).all(),
     env.DB.prepare("SELECT id, player_id, body, updated_at, deleted FROM rounds WHERE updated_at > ?").bind(s).all(),
     env.DB.prepare("SELECT id, body, updated_at, deleted FROM courses WHERE updated_at > ?").bind(s).all(),
-    env.DB.prepare("SELECT id, round_id, player_id, body, updated_at, deleted FROM comments WHERE updated_at > ?").bind(s).all()
+    env.DB.prepare("SELECT id, round_id, player_id, body, updated_at, deleted FROM comments WHERE updated_at > ?").bind(s).all(),
+    env.DB.prepare("SELECT id, round_id, player_id, caption, updated_at, deleted FROM photos WHERE updated_at > ?").bind(s).all()
   ]);
   const unpack = (row, extra) => {
     let body = {};
@@ -104,6 +105,10 @@ async function readState(env, since) {
     courses: (courses.results || []).map(r => unpack(r)),
     comments: (comments.results || []).map(r => ({
       id: r.id, roundId: r.round_id, playerId: r.player_id, body: r.body,
+      updatedAt: r.updated_at, deleted: !!r.deleted
+    })),
+    photos: (photos.results || []).map(r => ({
+      id: r.id, roundId: r.round_id, playerId: r.player_id, caption: r.caption,
       updatedAt: r.updated_at, deleted: !!r.deleted
     }))
   };
@@ -173,6 +178,16 @@ async function applyWrites(env, payload, session) {
       .bind(cm.id, cm.roundId, author || mine, String(cm.body || "").slice(0, 1000), now, cm.deleted ? 1 : 0));
   }
 
+  for (const ph of take(payload.photos)) {
+    if (!ph || !ph.id) continue;
+    const allowed = (ph.playerId && ph.playerId === mine) || (isAdmin && ph.deleted);
+    if (!allowed) { refused.push(ph.id); continue; }
+    if (ph.deleted && env.PHOTOS) { try { await env.PHOTOS.delete("p/" + ph.id); } catch (e) { /* index still goes */ } }
+    stmts.push(env.DB.prepare(
+      "UPDATE photos SET caption = ?, updated_at = ?, deleted = ? WHERE id = ? AND (player_id = ? OR ? = 1)")
+      .bind(String(ph.caption || "").slice(0, 200), now, ph.deleted ? 1 : 0, ph.id, mine, isAdmin ? 1 : 0));
+  }
+
   for (const c of take(payload.courses)) {
     if (!c || !c.id) continue;
     stmts.push(env.DB.prepare(
@@ -191,6 +206,21 @@ export default {
     const url = new URL(request.url);
 
     /* Everything that is not the API is the app itself. */
+    /* A picture is fetched by an <img> tag, so it carries no headers of its
+       own; the unguessable id in the path is what protects it. */
+    const photo = url.pathname.match(/^\/photo\/([A-Za-z0-9_-]{16,64})$/);
+    if (photo) {
+      if (!env.PHOTOS) return new Response("not configured", { status: 500 });
+      const obj = await env.PHOTOS.getWithMetadata("p/" + photo[1], { type: "arrayBuffer" });
+      if (!obj || !obj.value) return new Response("not found", { status: 404 });
+      return new Response(obj.value, {
+        headers: {
+          "content-type": (obj.metadata && obj.metadata.type) || "image/jpeg",
+          "cache-control": "public, max-age=31536000, immutable"
+        }
+      });
+    }
+
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: JSON_HEADERS });
     if (!env.DB) return bad("database_not_bound", 500);
@@ -248,6 +278,31 @@ export default {
       await env.DB.prepare("INSERT INTO sessions (token, player_id, created_at) VALUES (?,?,?)")
         .bind(token, row.id, Date.now()).run();
       return json({ token, playerId: row.id });
+    }
+
+    /* ---- pictures ----
+       Uploading needs the group and a signed-in player. Serving does not:
+       an <img> tag cannot send headers, so the photo's own id is its key —
+       32 random characters, exactly like the group link. */
+    if (url.pathname === "/api/photo" && request.method === "POST") {
+      if (!env.PHOTOS) return bad("photos_not_configured", 500);
+      const session = await sessionOf(request, env);
+      if (!session) return bad("signed_out", 401);
+      const roundId = url.searchParams.get("roundId");
+      if (!roundId) return bad("round_required");
+      const type = request.headers.get("content-type") || "image/jpeg";
+      if (!/^image\//.test(type)) return bad("not_an_image");
+      const body = await request.arrayBuffer();
+      if (!body.byteLength) return bad("empty");
+      if (body.byteLength > 6 * 1024 * 1024) return bad("too_large", 413);
+
+      const id = randomToken(24);
+      await env.PHOTOS.put("p/" + id, body, { metadata: { type } });
+      const now = Date.now();
+      await env.DB.prepare(
+        "INSERT INTO photos (id, round_id, player_id, caption, updated_at, deleted) VALUES (?,?,?,?,?,0)")
+        .bind(id, roundId, session.player_id, "", now).run();
+      return json({ id, roundId, playerId: session.player_id, updatedAt: now });
     }
 
     /* ---- what only an admin may do ---- */
