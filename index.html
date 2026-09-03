@@ -23053,7 +23053,8 @@ function viewPlayers() {
           return '<tr class="clickable" data-go="/players/' + p.id + '"><td><div class="row-tight">' + avatar(p) +
             '<div class="stack-sm" style="gap:0"><b>' + esc(p.name) + '</b>' +
             (p.startHi != null && s.index == null ? '<span class="tiny muted">starting index ' + hiLabel(p.startHi) + '</span>' : '') +
-            '</div>' + (LOCAL.me === p.id ? '<span class="chip accent">you</span>' : '') + '</div></td>' +
+            '</div>' + (LOCAL.me === p.id ? '<span class="chip accent">you</span>' : '') +
+            (p.admin ? '<span class="chip" title="runs the group">admin</span>' : '') + '</div></td>' +
             '<td class="n"><b>' + hiLabel(s.index != null ? s.index : p.startHi) + '</b></td>' +
             '<td class="n">' + s.rounds + '</td>' +
             '<td class="n ' + (s.avgToPar == null ? "" : parClass(s.avgToPar)) + '">' + (s.avgToPar == null ? "—" : relToPar(Math.round(s.avgToPar * 10) / 10)) + '</td>' +

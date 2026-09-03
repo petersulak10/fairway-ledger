@@ -21747,7 +21747,7 @@ const DEVICE_KEY = "fairway-ledger-device";
 let S = { players: [], rounds: [], courses: [], meta: {} };
 let LOCAL = { me: null, sync: null, lastPull: 0 };
 
-function blankState() { return { players: [], rounds: [], courses: [], meta: { created: now() } }; }
+function blankState() { return { players: [], rounds: [], courses: [], comments: [], meta: { created: now() } }; }
 
 let saveLocalSoon = false;
 function loadLocal() {
@@ -21758,6 +21758,7 @@ function loadLocal() {
   if (!S.players) S.players = [];
   if (!S.rounds) S.rounds = [];
   if (!S.courses) S.courses = [];
+  if (!S.comments) S.comments = [];
   if (!S.meta) S.meta = {};
   /* v2 migration: the bundled course list used to be copied into storage.
      It is now a read-only catalogue, so drop the old copies and keep only
@@ -22054,6 +22055,13 @@ function apiHeaders(extra) {
 /** The player this device is signed in as, if any. */
 const signedInAs = () => (LOCAL.token && LOCAL.me) ? LOCAL.me : null;
 const isClaimed = (p) => !!(p && p.claimed);
+/** The group's admin can tidy up after everyone. */
+const iAmAdmin = () => {
+  const me = signedInAs() ? playerById(signedInAs()) : null;
+  return !!(me && me.admin);
+};
+const commentsFor = (roundId) =>
+  sortBy((S.comments || []).filter(c => c.roundId === roundId && !c.deleted), c => c.updatedAt || 0);
 const canEditPlayer = (id) => {
   const p = playerById(id);
   return !isClaimed(p) || signedInAs() === id;
@@ -22063,7 +22071,7 @@ const canEditPlayer = (id) => {
 function mergeState(remote) {
   if (!remote || typeof remote !== "object") return 0;
   let changed = 0;
-  ["players", "rounds", "courses"].forEach(key => {
+  ["players", "rounds", "courses", "comments"].forEach(key => {
     const map = new Map((S[key] || []).map(x => [x.id, x]));
     (remote[key] || []).forEach(rx => {
       if (!rx || !rx.id) return;
@@ -22079,7 +22087,7 @@ function mergeState(remote) {
 function outbox() {
   const since = LOCAL.syncedAt || 0;
   const mine = (list) => (list || []).filter(x => (x.updatedAt || 0) > since);
-  return { players: mine(S.players), rounds: mine(S.rounds), courses: mine(S.courses) };
+  return { players: mine(S.players), rounds: mine(S.rounds), courses: mine(S.courses), comments: mine(S.comments) };
 }
 
 async function syncNow(quiet) {
@@ -22232,7 +22240,8 @@ const ICONS = {
   people: ico('<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.5a3 3 0 0 1 0 5.9M17 20a6 6 0 0 0-2-4.4"/>'),
   gear:   ico('<circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M21 12h-2.2M5.2 12H3M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 7.2L5.6 5.6"/>'),
   chart:  ico('<path d="M4 19h16"/><path d="M6 15l4-5 3.5 3L19 6"/>'),
-  info:   ico('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01"/>')
+  info:   ico('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01"/>'),
+  chat:   ico('<path d="M20 15a2 2 0 0 1-2 2H8l-4 3V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/>')
 };
 </script>
 
@@ -22322,6 +22331,7 @@ function roundRow(a) {
     '<td class="n ' + (a.toPar == null ? "" : parClass(a.toPar)) + '">' + (a.toPar == null ? "—" : relToPar(a.toPar)) + '</td>' +
     '<td class="n">' + (a.net == null ? "—" : a.net) + '</td>' +
     '<td class="n">' + (a.played ? a.points : "—") + '</td>' +
+    '<td class="n">' + (commentsFor(a.round.id).length || '') + '</td>' +
     '</tr>';
 }
 
@@ -22376,7 +22386,7 @@ function viewHome() {
       '<div class="card">' +
         '<div class="card-pad spread"><h2 class="sect-title">Latest rounds</h2><a class="btn ghost sm" href="#/rounds">All rounds</a></div>' +
         (recent.length ? '<div class="table-wrap"><table class="tbl"><thead><tr>' +
-          '<th>Player</th><th>Course</th><th class="n">Gross</th><th class="n">±</th><th class="n">Net</th><th class="n">Pts</th>' +
+          '<th>Player</th><th>Course</th><th class="n">Gross</th><th class="n">±</th><th class="n">Net</th><th class="n">Pts</th><th class="n">' + ICONS.chat + '</th>' +
           '</tr></thead><tbody>' + recent.map(roundRow).join("") + '</tbody></table></div>'
           : '<div class="empty"><span class="small">No cards in the ledger yet.</span></div>') +
       '</div>' +
@@ -22680,7 +22690,7 @@ function viewRounds() {
     '</div></div>' +
     '<div class="card">' + (list.length
       ? '<div class="table-wrap"><table class="tbl"><thead><tr><th>Player</th><th>Course</th>' +
-        '<th class="n">Gross</th><th class="n">±</th><th class="n">Net</th><th class="n">Pts</th></tr></thead><tbody>' +
+        '<th class="n">Gross</th><th class="n">±</th><th class="n">Net</th><th class="n">Pts</th><th class="n">' + ICONS.chat + '</th></tr></thead><tbody>' +
         list.map(roundRow).join("") + '</tbody></table></div>'
       : '<div class="empty"><span>Nothing logged yet.</span>' +
         '<a class="btn primary" href="#/play">Log the first round</a></div>') + '</div>';
@@ -22761,8 +22771,36 @@ function viewRound(id) {
       tile("Greens", a.girHoles ? Math.round(a.gir / a.girHoles * 100) + "%" : "—", a.girHoles ? a.gir + " of " + a.girHoles : "not recorded") +
       tile("Putts", a.putts == null ? "—" : a.putts, a.puttHoles ? plural(a.puttHoles, "hole") + " recorded" : "not recorded") +
       tile("Birdies or better", a.dist.birdie + a.dist.eagle, a.dist.par + " pars · " + a.dist.bogey + " bogeys") +
-    '</div>';
+    '</div>' + commentThread(r);
 }
+function commentThread(round) {
+  if (!syncOn()) return "";
+  const list = commentsFor(round.id);
+  const me = signedInAs();
+  const rows = list.map(c => {
+    const author = playerById(c.playerId);
+    const canRemove = (me && c.playerId === me) || iAmAdmin();
+    return '<div class="cmt">' + avatar(author) +
+      '<div class="cmt-body"><div class="cmt-head">' +
+        '<b>' + esc(author ? author.name : "Someone") + '</b>' +
+        '<span class="tiny muted">' + fmtDateShort(new Date(c.updatedAt).toISOString().slice(0, 10)) + '</span>' +
+        (canRemove ? '<button class="btn ghost sm" data-act="delete-comment" data-id="' + c.id + '">Delete</button>' : '') +
+      '</div><p>' + esc(c.body) + '</p></div></div>';
+  }).join("");
+
+  return '<div class="card card-pad stack" style="margin-top:14px">' +
+    '<h2 class="sect-title">Comments' + (list.length ? ' <span class="muted">' + list.length + '</span>' : '') + '</h2>' +
+    (rows || '<p class="muted small">Nothing said yet.</p>') +
+    (me
+      ? '<div class="row" style="align-items:flex-end">' +
+          '<div class="field" style="flex:1"><label for="cmt-new" class="tiny muted">Say something</label>' +
+          '<input id="cmt-new" type="text" placeholder="Nice up and down on 17…" data-act="comment-input" maxlength="500" autocomplete="off"></div>' +
+          '<button class="btn primary" data-act="post-comment" data-id="' + round.id + '">Post</button>' +
+        '</div>'
+      : '<p class="help">Sign in as yourself to join in — Settings, then choose your name.</p>') +
+  '</div>';
+}
+
 function mark(s, par) {
   const d = s - par;
   const cls = d <= -2 ? "sc-eagle" : d === -1 ? "sc-birdie" : d === 1 ? "sc-bogey" : d >= 2 ? "sc-double" : "";
@@ -23005,7 +23043,8 @@ function siProblem(c) {
 
 /* ---------- view: players ---------- */
 function viewPlayers() {
-  return head("Players", plural(S.players.length, "player") + " in the group",
+  return head("Players", plural(S.players.length, "player") + " in the group" +
+    (syncOn() && !iAmAdmin() ? " · only the admin can remove people" : ""),
     '<button class="btn primary" data-act="add-player">Add player</button>') +
     '<div class="card">' + (S.players.length
       ? '<div class="table-wrap"><table class="tbl"><thead><tr><th>Player</th><th class="n">Index</th><th class="n">Rounds</th><th class="n">Avg ±</th><th></th></tr></thead><tbody>' +
@@ -23018,9 +23057,16 @@ function viewPlayers() {
             '<td class="n"><b>' + hiLabel(s.index != null ? s.index : p.startHi) + '</b></td>' +
             '<td class="n">' + s.rounds + '</td>' +
             '<td class="n ' + (s.avgToPar == null ? "" : parClass(s.avgToPar)) + '">' + (s.avgToPar == null ? "—" : relToPar(Math.round(s.avgToPar * 10) / 10)) + '</td>' +
-            '<td class="n">' + (isClaimed(p) ? '<span class="chip" title="protected with a PIN">' + LOCK + '</span> ' : '') +
+            '<td class="n"><div class="row-tight" style="justify-content:flex-end">' +
+            (isClaimed(p) ? '<span class="chip" title="protected with a PIN">' + LOCK + '</span>' : '') +
             (canEditPlayer(p.id) ? '<button class="btn ghost sm" data-act="edit-player" data-id="' + p.id + '">Edit</button>' : '') +
-            '</td></tr>';
+            (iAmAdmin() && p.id !== signedInAs()
+              ? (isClaimed(p) ? '<button class="btn ghost sm" data-act="clear-pin" data-id="' + p.id + '">Clear PIN</button>' : '') +
+                '<button class="btn ghost sm" data-act="make-admin" data-id="' + p.id + '" data-on="' + (p.admin ? "0" : "1") + '">' +
+                  (p.admin ? "Remove admin" : "Make admin") + '</button>' +
+                '<button class="btn ghost sm danger" data-act="remove-player" data-id="' + p.id + '">Remove</button>'
+              : '') +
+            '</div></td></tr>';
         }).join("") + '</tbody></table></div>'
       : '<div class="empty"><span>Nobody in the group yet.</span>' +
         '<button class="btn primary" data-act="add-player">Add the first player</button></div>') + '</div>';
@@ -23440,6 +23486,70 @@ const ACTIONS = {
         : "Could not save that just now — check your connection.";
     }
   },
+  /* ---- comments ---- */
+  "comment-input": () => {},
+  "post-comment": (el) => {
+    const box = $("#cmt-new");
+    const body = (box ? box.value : "").trim();
+    if (!body) { toast("Nothing to say yet."); return; }
+    if (!signedInAs()) { toast("Sign in as yourself first."); return; }
+    S.comments.push(touch({ id: "cm_" + uid(), roundId: el.dataset.id, playerId: signedInAs(), body }));
+    if (box) box.value = "";
+    commit(); schedulePush();
+  },
+  "delete-comment": (el) => {
+    const c = (S.comments || []).find(x => x.id === el.dataset.id);
+    if (!c) return;
+    if (!confirm("Delete this comment?")) return;
+    c.deleted = true; touch(c); commit(); schedulePush();
+  },
+
+  /* ---- what the group's admin can do ---- */
+  "remove-player": async (el) => {
+    const p = playerById(el.dataset.id);
+    if (!p) return;
+    const rounds = liveRounds().filter(r => r.playerId === p.id).length;
+    if (!confirm("Remove " + p.name + " from the group?\n\nTheir " + plural(rounds, "round") +
+                 " and comments go too. This affects everyone.")) return;
+    try {
+      await apiPost("/admin/remove-player", { playerId: p.id });
+      LOCAL.syncedAt = 0; saveDevice();
+      await syncNow(true);
+      S.players = S.players.filter(x => x.id !== p.id);
+      S.rounds = S.rounds.filter(r => r.playerId !== p.id);
+      saveLocal(); render();
+      toast(p.name + " was removed");
+    } catch (e) {
+      toast(e.message === "not_admin" ? "Only the group's admin can remove players."
+        : e.message === "cannot_remove_yourself" ? "You cannot remove yourself — pass the group on first."
+        : "Could not remove them just now.");
+    }
+  },
+  "make-admin": async (el) => {
+    const p = playerById(el.dataset.id);
+    if (!p) return;
+    const on = el.dataset.on !== "0";
+    if (on && !confirm("Make " + p.name + " an admin? They will be able to remove players and delete anyone's rounds.")) return;
+    try {
+      await apiPost("/admin/set-admin", { playerId: p.id, makeAdmin: on });
+      LOCAL.syncedAt = 0; saveDevice(); await syncNow(true); render();
+      toast(on ? p.name + " is an admin now" : p.name + " is no longer an admin");
+    } catch (e) {
+      toast(e.message === "group_needs_an_admin" ? "Make somebody else an admin first."
+        : "Could not change that just now.");
+    }
+  },
+  "clear-pin": async (el) => {
+    const p = playerById(el.dataset.id);
+    if (!p) return;
+    if (!confirm("Clear " + p.name + "'s PIN? Their card becomes unclaimed and anyone can take it over.")) return;
+    try {
+      await apiPost("/admin/clear-pin", { playerId: p.id });
+      LOCAL.syncedAt = 0; saveDevice(); await syncNow(true); render();
+      toast(p.name + "'s PIN was cleared");
+    } catch (e) { toast("Could not clear it just now."); }
+  },
+
   "sign-out": () => {
     apiPost("/signout", {}).catch(() => {});
     LOCAL.token = ""; saveDevice(); render();
@@ -23924,4 +24034,17 @@ input[type="file"]::file-selector-button {
 .mh-btn:hover { background: var(--surface-2); color: var(--ink); }
 .mh-btn.on { background: var(--accent-wash); color: var(--accent); border-color: transparent; }
 .mh-btn svg { width: 18px; height: 18px; }
+</style>
+
+<style>
+/* comment thread */
+.cmt { display: flex; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line-soft); }
+.cmt:first-of-type { border-top: none; }
+.cmt-body { min-width: 0; flex: 1; }
+.cmt-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.cmt-head b { font-size: 13.5px; }
+.cmt-head .btn { margin-left: auto; }
+.cmt-body p { font-size: 14px; color: var(--ink-2); overflow-wrap: anywhere; }
+.btn.ghost.danger { color: var(--over); }
+.btn.ghost.danger:hover { background: var(--over-wash); }
 </style>
