@@ -22485,7 +22485,7 @@ function draft() {
   return LOCAL.draft;
 }
 function saveDraft() { saveDevice(); }
-function clearDraft() { LOCAL.draft = null; saveDevice(); }
+function clearDraft() { LOCAL.draft = null; LOCAL.draftSetup = false; saveDevice(); }
 function draftHoleCount(d) { return d.holeSet === "18" ? 18 : 9; }
 function draftOffset(d) { return d.holeSet === "back" ? 9 : 0; }
 function draftHoles(d, course) {
@@ -22641,7 +22641,8 @@ function viewPlay() {
       '<div class="card-pad spread" style="border-bottom:1px solid var(--line)">' +
         '<div class="stack-sm" style="gap:2px"><h2 class="sect-title">' + esc(player ? player.name : "") + '</h2>' +
         '<span class="tiny muted">' + courseLine(course) + ' · ' + esc(tee.name) + ' · playing off ' +
-        (ch == null ? "scratch (no index yet)" : ch) + '</span></div>' +
+        (ch == null ? "scratch — no index yet" : ch) +
+        ' · <a href="#/play" data-act="change-course">change course</a></span></div>' +
         '<div class="row" style="gap:16px">' +
           '<div class="stack-sm" style="gap:0;text-align:right"><span class="label">Gross</span><span class="num" style="font-size:20px">' + (played ? gross : "—") + '</span></div>' +
           '<div class="stack-sm" style="gap:0;text-align:right"><span class="label">To par</span><span class="num ' + (played ? parClass(gross - parSoFar) : "") + '" style="font-size:20px">' + (played ? relToPar(gross - parSoFar) : "—") + '</span></div>' +
@@ -22657,8 +22658,18 @@ function viewPlay() {
       '</div>' +
     '</div>';
 
-  return head("New round", fmtDate(d.date) + " · " + course.club) + tabs + game +
-    '<div class="stack">' + entry + setup + players + '</div>';
+  /* Choosing the course comes first until you start scoring, and can be
+     brought back at any time — otherwise the picker hides below 18 holes. */
+  const changing = !!LOCAL.draftSetup;
+
+  return head("New round", fmtDate(d.date) + " · " + course.club + " · " + course.course,
+    '<div class="row">' +
+      '<button class="btn" data-act="change-course">' + (changing ? "Keep this course" : "Change course") + '</button>' +
+      '<button class="btn danger" data-act="discard-draft">Start over</button>' +
+    '</div>') + tabs +
+    (changing ? '<div class="stack" style="margin-bottom:14px">' + setup + players + '</div>' : '') +
+    game +
+    '<div class="stack">' + entry + (changing ? '' : setup + players) + '</div>';
 }
 
 /* ---------- the game, while you are still out there -------------------
@@ -23884,7 +23895,11 @@ const ACTIONS = {
   "pick-ct": (el) => { const d = draft(); d.pick = { ct: el.value }; d.courseId = null; d.teeId = null; saveDraft(); render(); },
   "pick-co": (el) => { const d = draft(); d.pick = { ct: d.pick.ct, co: el.value }; d.courseId = null; d.teeId = null; saveDraft(); render(); },
   "pick-ci": (el) => { const d = draft(); d.pick = { ct: d.pick.ct, co: d.pick.co, ci: el.value }; d.courseId = null; d.teeId = null; saveDraft(); render(); },
-  "pick-cs": (el) => { const d = draft(); d.courseId = el.value || null; d.teeId = null; saveDraft(); if (d.courseId) primeDetail(d.courseId); render(); },
+  "pick-cs": (el) => {
+    const d = draft(); d.courseId = el.value || null; d.teeId = null;
+    if (d.courseId) { LOCAL.draftSetup = false; saveDevice(); primeDetail(d.courseId); }
+    saveDraft(); render();
+  },
   "pick-tee": (el) => { draft().teeId = el.value; saveDraft(); render(); },
   "pick-date": (el) => { draft().date = el.value || todayISO(); saveDraft(); },
   "toggle-player": (el) => {
@@ -23946,7 +23961,17 @@ const ACTIONS = {
     toast(plural(saved, "card") + " saved");
     go("/rounds");
   },
-  "discard-draft": () => { if (confirm("Discard this card?")) { clearDraft(); render(); } },
+  "discard-draft": () => {
+    const d = LOCAL.draft;
+    const scored = d && d.playerIds.some(pid => (d.scores[pid] || []).some(e => num(e.s) != null));
+    if (scored && !confirm("Throw this card away and start a new round? Nothing is saved.")) return;
+    clearDraft(); LOCAL.draftSetup = false; saveDevice(); render();
+  },
+  "change-course": (el, e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    LOCAL.draftSetup = !LOCAL.draftSetup;
+    saveDevice(); window.scrollTo(0, 0); render();
+  },
   "edit-round": (el) => {
     const r = liveRounds().find(x => x.id === el.dataset.id);
     const group = liveRounds().filter(x => r.groupId && x.groupId === r.groupId);
@@ -23979,6 +24004,7 @@ const ACTIONS = {
     if (!c) return;
     d.courseId = c.id; d.teeId = null;
     d.pick = { ct: c.continent, co: c.country, ci: c.city };
+    LOCAL.draftSetup = false; saveDevice();
     saveDraft(); primeDetail(c.id); render();
   },
   "adopt-remote-play": (el) => {

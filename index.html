@@ -22253,19 +22253,43 @@ function renderNav() {
   const r2 = route();
   $("#mobilehead").innerHTML =
     '<a href="#/" class="mh-brand"><span class="brand-mark">Fairway Ledger</span></a>' +
-    '<div class="mh-actions">' +
+    '<div class="mh-actions">' + identityBar() +
     ["/courses", "/settings"].map(path => {
       const x = ROUTES.find(y => y.path === path);
       return '<a href="#' + path + '" class="mh-btn' + (r2.top === path ? " on" : "") + '" ' +
         'aria-label="' + esc(x.label) + '" title="' + esc(x.label) + '">' + ICONS[x.glyph] + '</a>';
     }).join("") + '</div>';
 
+  $("#whoami").innerHTML = identityBar();
+}
+
+/** Who this device is, and whether it has proved it. */
+function identityState() {
   const me = LOCAL.me ? playerById(LOCAL.me) : null;
-  $("#whoami").innerHTML = me
-    ? '<button class="btn ghost sm" data-act="pick-me" style="width:100%;justify-content:flex-start;gap:8px">' +
-      '<span class="avatar" style="width:22px;height:22px;font-size:10px">' + esc(initials(me.name)) + '</span>' +
-      '<span style="overflow:hidden;text-overflow:ellipsis">' + esc(me.name) + '</span></button>'
-    : '<button class="btn ghost sm" data-act="pick-me" style="width:100%">Who are you?</button>';
+  if (!me) return { kind: "nobody" };
+  if (!syncOn()) return { kind: "local", me };
+  if (signedInAs() === me.id) return { kind: "signed-in", me };
+  if (isClaimed(me)) return { kind: "locked-out", me };
+  return { kind: "unprotected", me };
+}
+
+function identityBar() {
+  const st = identityState();
+  const wrap = (act, extra, inner) =>
+    '<button class="who ' + extra + '" data-act="' + act + '">' + inner + '</button>';
+  const face = (p) => '<span class="avatar" style="width:22px;height:22px;font-size:10px">' +
+    esc(initials(p.name)) + '</span>';
+
+  if (st.kind === "nobody") return wrap("pick-me", "who-none", "Who are you?");
+
+  const name = '<span class="who-name">' + esc(st.me.name) + '</span>';
+  if (st.kind === "signed-in")
+    return wrap("pick-me", "who-in", face(st.me) + name + '<span class="who-tag">' + LOCK + '</span>');
+  if (st.kind === "locked-out")
+    return wrap("sign-in-me", "who-out", face(st.me) + name + '<span class="who-tag who-cta">Sign in</span>');
+  if (st.kind === "unprotected")
+    return wrap("claim-me-now", "who-open", face(st.me) + name + '<span class="who-tag who-cta">Add a PIN</span>');
+  return wrap("pick-me", "", face(st.me) + name);
 }
 </script>
 
@@ -23328,6 +23352,21 @@ function viewPlayers() {
   return head("Players", plural(S.players.length, "player") + " in the group" +
     (syncOn() && !iAmAdmin() ? " · only the admin can remove people" : ""),
     '<button class="btn primary" data-act="add-player">Add player</button>') +
+    (function () {
+      const st = identityState();
+      if (st.kind === "locked-out") {
+        return '<div class="notice" style="margin-bottom:14px"><span>' + ICONS.flag + '</span><span>' +
+          'You are signed out on this device, so you can look but not change anything' +
+          (st.me.admin ? ', including the controls that come with running the group' : '') + '. ' +
+          '<button class="btn sm" data-act="sign-in-me">Sign in as ' + esc(st.me.name) + '</button></span></div>';
+      }
+      if (st.kind === "unprotected" && st.me) {
+        return '<div class="notice" style="margin-bottom:14px"><span>' + ICONS.pencil + '</span><span>' +
+          esc(st.me.name) + '\'s card has no PIN, so anyone in the group can change it. ' +
+          '<button class="btn sm" data-act="claim-me-now">Add a PIN</button></span></div>';
+      }
+      return '';
+    })() +
     '<div class="card">' + (S.players.length
       ? '<div class="table-wrap"><table class="tbl"><thead><tr><th>Player</th><th class="n">Index</th><th class="n">Rounds</th><th class="n">Avg ±</th><th></th></tr></thead><tbody>' +
         sortBy(S.players, p => p.name).map(p => {
@@ -23708,6 +23747,8 @@ function pickMeModal() {
 const ACTIONS = {
   "pick-me": () => pickMeModal(),
   "claim-me": (el) => { const p = playerById(el.dataset.id); if (p) claimModal(p); },
+  "sign-in-me": () => { const p = playerById(LOCAL.me); if (p) signInModal(p); else pickMeModal(); },
+  "claim-me-now": () => { const p = playerById(LOCAL.me); if (p) claimModal(p); else pickMeModal(); },
   "set-me": (el) => { LOCAL.me = el.dataset.id; saveDevice(); closeModal(); render(); },
 
   /* Becoming a player: a claimed card asks for its PIN, an open one offers to
@@ -24390,4 +24431,30 @@ input[type="file"]::file-selector-button {
   background: rgba(8,16,13,.62); color: #fff;
 }
 .shot-x:hover { background: rgba(8,16,13,.85); }
+</style>
+
+<style>
+/* who this device is, and whether it has proved it */
+.who {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 9px; border-radius: var(--radius-sm); cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  font: inherit; font-size: 13.5px; font-weight: 600; text-align: left;
+}
+.who:hover { background: var(--surface-2); }
+.who-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who-tag { margin-left: auto; display: inline-flex; align-items: center; flex: none; }
+.who-in .who-tag { color: var(--muted); }
+.who-cta {
+  padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700;
+  background: var(--accent); color: var(--accent-ink);
+}
+.who-out, .who-open { border-color: var(--accent); }
+.who-none { justify-content: center; color: var(--muted); }
+
+@media (max-width: 860px) {
+  .mh-actions { gap: 8px; align-items: center; }
+  .mh-actions .who { width: auto; max-width: 46vw; padding: 5px 8px; font-size: 12.5px; }
+  .mh-actions .who-name { max-width: 22vw; }
+}
 </style>
