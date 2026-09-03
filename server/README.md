@@ -93,6 +93,16 @@ Writes are last-writer-wins per record: a row only moves if the incoming
 `updatedAt` is at least as new as the stored one. Deletions travel as
 tombstones so every device learns about them; the app hides them.
 
+## Deleting anything by hand
+
+**A deletion must bump `updated_at`.** A device only asks for rows changed
+since it last synced, so a tombstone carrying an old timestamp is never
+delivered — the row stays alive in every browser that had already seen it.
+Clearing test data with a plain `UPDATE ... SET deleted = 1` is how a phone
+ended up showing three Peters and a Probe.
+
+Use `./reset.sh`, which does it correctly, or copy its pattern.
+
 ## Clearing a forgotten PIN
 
 There is no recovery by design. To release a card:
