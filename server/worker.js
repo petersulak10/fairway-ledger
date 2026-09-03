@@ -6,6 +6,10 @@
  * same players, rounds and course corrections; there are no group links and
  * no per-browser ledgers.
  *
+ * A player is a global identity — one name, one PIN, one handicap, one set of
+ * rounds. A group is a circle of people who see each other, and a player can
+ * belong to several. What a group scopes is the audience, not the golf.
+ *
  * Two locks, doing different jobs:
  *   • the group's join code, sent with every request, which decides who is
  *     in the group at all;
@@ -69,8 +73,7 @@ async function sessionOf(request, env) {
   const token = request.headers.get("x-player-token");
   if (!token) return null;
   const row = await env.DB.prepare(
-    "SELECT s.token, s.player_id, s.created_at, p.is_admin FROM sessions s " +
-    "JOIN players p ON p.id = s.player_id WHERE s.token = ?").bind(token).first();
+    "SELECT s.token, s.player_id, s.created_at FROM sessions s WHERE s.token = ?").bind(token).first();
   if (!row) return null;
   if (Date.now() - row.created_at > TOKEN_TTL) {
     await env.DB.prepare("DELETE FROM sessions WHERE token = ?").bind(token).run();
@@ -79,16 +82,44 @@ async function sessionOf(request, env) {
   return row;
 }
 
-function joinCodeOk(request, env) {
-  return sameSecret(norm(request.headers.get("x-join-code")), norm(env.JOIN_CODE));
+/** Which group does this request's code belong to? */
+async function groupOf(request, env) {
+  const code = norm(request.headers.get("x-join-code"));
+  if (!code) return null;
+  return await env.DB.prepare(
+    "SELECT id, name, join_code FROM groups WHERE join_code = ? AND deleted = 0").bind(code).first();
+}
+
+/** The players in a group, as a list of ids. */
+async function memberIds(env, groupId) {
+  const rows = await env.DB.prepare(
+    "SELECT player_id FROM memberships WHERE group_id = ? AND deleted = 0").bind(groupId).all();
+  return (rows.results || []).map(r => r.player_id);
+}
+
+async function isGroupAdmin(env, groupId, playerId) {
+  if (!playerId) return false;
+  const row = await env.DB.prepare(
+    "SELECT is_admin FROM memberships WHERE group_id = ? AND player_id = ? AND deleted = 0")
+    .bind(groupId, playerId).first();
+  return !!(row && row.is_admin);
 }
 
 /* ---------- reading ---------- */
-async function readState(env, since) {
+async function readState(env, since, group) {
   const s = Number(since) || 0;
+  const ids = await memberIds(env, group.id);
+  /* A group with nobody in it still needs a valid IN () list. */
+  const inList = ids.length ? ids.map(() => "?").join(",") : "''";
+  const args = ids.length ? ids : [];
+  const memberFilter = " AND player_id IN (" + inList + ")";
+  const idFilter = " AND id IN (" + inList + ")";
   const [players, rounds, courses, comments, photos] = await Promise.all([
-    env.DB.prepare("SELECT id, name, body, updated_at, deleted, is_admin, (pin_hash IS NOT NULL) AS claimed FROM players WHERE updated_at > ?").bind(s).all(),
-    env.DB.prepare("SELECT id, player_id, body, updated_at, deleted FROM rounds WHERE updated_at > ?").bind(s).all(),
+    env.DB.prepare("SELECT p.id, p.name, p.body, p.updated_at, p.deleted, " +
+      "(SELECT is_admin FROM memberships m WHERE m.group_id = ? AND m.player_id = p.id AND m.deleted = 0) AS is_admin, " +
+      "(p.pin_hash IS NOT NULL) AS claimed FROM players p WHERE p.updated_at > ?" + idFilter)
+      .bind(group.id, s, ...args).all(),
+    env.DB.prepare("SELECT id, player_id, body, updated_at, deleted FROM rounds WHERE updated_at > ?" + memberFilter).bind(s, ...args).all(),
     env.DB.prepare("SELECT id, body, updated_at, deleted FROM courses WHERE updated_at > ?").bind(s).all(),
     env.DB.prepare("SELECT id, round_id, player_id, body, updated_at, deleted FROM comments WHERE updated_at > ?").bind(s).all(),
     env.DB.prepare("SELECT id, round_id, player_id, caption, updated_at, deleted FROM photos WHERE updated_at > ?").bind(s).all()
@@ -100,6 +131,7 @@ async function readState(env, since) {
   };
   return {
     now: Date.now(),
+    group: { id: group.id, name: group.name, code: group.join_code, members: ids.length },
     players: (players.results || []).map(r => unpack(r, { name: r.name, claimed: !!r.claimed, admin: !!r.is_admin })),
     rounds: (rounds.results || []).map(r => unpack(r, { playerId: r.player_id })),
     courses: (courses.results || []).map(r => unpack(r)),
@@ -121,13 +153,13 @@ function bodyOf(rec, drop) {
   return JSON.stringify(body);
 }
 
-async function applyWrites(env, payload, session) {
+async function applyWrites(env, payload, session, group) {
   const now = Date.now();
   const stmts = [];
   const refused = [];
   const take = (list) => (Array.isArray(list) ? list : []).slice(0, MAX_RECORDS);
   const mine = session ? session.player_id : null;
-  const isAdmin = !!(session && session.is_admin);
+  const isAdmin = session ? await isGroupAdmin(env, group.id, session.player_id) : false;
 
   /* Which of the players being touched are already claimed, and by whom. */
   const touched = new Set();
@@ -154,6 +186,15 @@ async function applyWrites(env, payload, session) {
       "updated_at = excluded.updated_at, deleted = excluded.deleted " +
       "WHERE excluded.updated_at >= players.updated_at")
       .bind(p.id, String(p.name || "").slice(0, 80), bodyOf(p, ["name"]), now, p.deleted ? 1 : 0));
+
+    /* Adding someone to your scorecard puts them in this group — otherwise
+       you would be the only person who could ever see them. */
+    if (!p.deleted && group)
+      stmts.push(env.DB.prepare(
+        "INSERT INTO memberships (id, group_id, player_id, is_admin, updated_at, deleted) VALUES (?,?,?,0,?,0) " +
+        "ON CONFLICT(id) DO UPDATE SET deleted = 0, updated_at = excluded.updated_at " +
+        "WHERE memberships.deleted = 1")
+        .bind(group.id + "|" + p.id, group.id, p.id, now));
   }
   for (const r of take(payload.rounds)) {
     if (!r || !r.id || !r.playerId) continue;
@@ -226,10 +267,125 @@ export default {
     if (!env.DB) return bad("database_not_bound", 500);
 
     /* Check a join code without being in the group yet. */
-    if (url.pathname === "/api/hello") {
-      return json({ ok: true, group: joinCodeOk(request, env) });
+    /* Whoever runs the group can rename it or change the code it is joined by. */
+    if (url.pathname === "/api/group/rename" && request.method === "POST") {
+      const group = await groupOf(request, env);
+      if (!group) return bad("no_group_code", 404);
+      const session = await sessionOf(request, env);
+      if (!session) return bad("signed_out", 401);
+      if (!(await isGroupAdmin(env, group.id, session.player_id))) return bad("not_admin", 403);
+
+      const { name, code } = await request.json().catch(() => ({}));
+      const clean = String(name || "").trim().slice(0, 60);
+      if (!clean) return bad("no_name");
+      let key = group.join_code;
+      if (code) {
+        key = norm(code).replace(/[^a-z0-9]/g, "").slice(0, 24);
+        if (key.length < 4) return bad("code_too_short");
+        if (key !== group.join_code) {
+          const clash = await env.DB.prepare(
+            "SELECT id FROM groups WHERE join_code = ? AND deleted = 0").bind(key).first();
+          if (clash) return bad("code_taken", 409);
+        }
+      }
+      await env.DB.prepare("UPDATE groups SET name = ?, join_code = ?, updated_at = ? WHERE id = ?")
+        .bind(clean, key, Date.now(), group.id).run();
+      return json({ ok: true, id: group.id, name: clean, code: key });
     }
-    if (!joinCodeOk(request, env)) return bad("bad_join_code", 401);
+
+    /* Creating a group is the one thing you can do from nothing: a brand-new
+       player needs a way to make their first group, and there is no group to
+       be a member of yet. Bring a token if you have one, or a name and PIN. */
+    if (url.pathname === "/api/group/create" && request.method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      const { name, code, playerName, pin } = body;
+      let session = await sessionOf(request, env);
+
+      if (!session) {
+        const clean = String(playerName || "").trim().slice(0, 80);
+        if (!clean) return bad("signed_out", 401);
+        if (String(pin || "").length < 4) return bad("pin_too_short");
+        const taken = await env.DB.prepare(
+          "SELECT id, pin_hash FROM players WHERE lower(name) = lower(?) AND deleted = 0").bind(clean).first();
+        if (taken && taken.pin_hash) return bad("name_taken", 409);
+        const now0 = Date.now();
+        const salt = randomToken(16);
+        const hash = await hashPin(pin, salt);
+        const pid = taken ? taken.id : "p_" + randomToken(9);
+        if (taken) {
+          await env.DB.prepare("UPDATE players SET pin_hash = ?, pin_salt = ?, updated_at = ? WHERE id = ?")
+            .bind(hash, salt, now0, pid).run();
+        } else {
+          await env.DB.prepare(
+            "INSERT INTO players (id, name, pin_hash, pin_salt, body, updated_at, deleted) VALUES (?,?,?,?,?,?,0)")
+            .bind(pid, clean, hash, salt, JSON.stringify({ startHi: null, createdAt: now0 }), now0).run();
+        }
+        const tok = randomToken(32);
+        await env.DB.prepare("INSERT INTO sessions (token, player_id, created_at) VALUES (?,?,?)")
+          .bind(tok, pid, now0).run();
+        session = { player_id: pid, __token: tok };
+      }
+      const clean = String(name || "").trim().slice(0, 60);
+      const key = norm(code);
+      if (!clean) return bad("name_required");
+      if (key.length < 4) return bad("code_too_short");
+      const taken = await env.DB.prepare("SELECT id FROM groups WHERE join_code = ? AND deleted = 0").bind(key).first();
+      if (taken) return bad("code_taken", 409);
+      const now = Date.now();
+      const gid = "g_" + randomToken(9);
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO groups (id, name, join_code, updated_at, deleted) VALUES (?,?,?,?,0)")
+          .bind(gid, clean, key, now),
+        env.DB.prepare("INSERT INTO memberships (id, group_id, player_id, is_admin, updated_at, deleted) VALUES (?,?,?,1,?,0)")
+          .bind(gid + "|" + session.player_id, gid, session.player_id, now)
+      ]);
+      return json({ id: gid, name: clean, code: key, playerId: session.player_id,
+                    token: session.__token || undefined });
+    }
+
+    const group = await groupOf(request, env);
+
+    if (url.pathname === "/api/hello") {
+      return json({ ok: true, group: !!group, name: group ? group.name : null, id: group ? group.id : null });
+    }
+    if (!group) return bad("bad_join_code", 401);
+
+    /* Which groups does this player belong to? */
+    if (url.pathname === "/api/groups" && request.method === "GET") {
+      const session = await sessionOf(request, env);
+      if (!session) return json({ groups: [] });
+      const rows = await env.DB.prepare(
+        "SELECT g.id, g.name, g.join_code, m.is_admin FROM memberships m " +
+        "JOIN groups g ON g.id = m.group_id " +
+        "WHERE m.player_id = ? AND m.deleted = 0 AND g.deleted = 0 ORDER BY g.name")
+        .bind(session.player_id).all();
+      return json({ groups: (rows.results || []).map(r => ({
+        id: r.id, name: r.name, code: r.join_code, admin: !!r.is_admin })) });
+    }
+
+    /* Joining is simply becoming a member of the group this code names. */
+    if (url.pathname === "/api/group/join" && request.method === "POST") {
+      const session = await sessionOf(request, env);
+      if (!session) return bad("signed_out", 401);
+      const now = Date.now();
+      const anyAdmin = await env.DB.prepare(
+        "SELECT 1 AS x FROM memberships WHERE group_id = ? AND is_admin = 1 AND deleted = 0 LIMIT 1")
+        .bind(group.id).first();
+      await env.DB.prepare(
+        "INSERT INTO memberships (id, group_id, player_id, is_admin, updated_at, deleted) VALUES (?,?,?,?,?,0) " +
+        "ON CONFLICT(id) DO UPDATE SET deleted = 0, updated_at = excluded.updated_at")
+        .bind(group.id + "|" + session.player_id, group.id, session.player_id, anyAdmin ? 0 : 1, now).run();
+      return json({ ok: true, id: group.id, name: group.name, admin: !anyAdmin });
+    }
+
+    if (url.pathname === "/api/group/leave" && request.method === "POST") {
+      const session = await sessionOf(request, env);
+      if (!session) return bad("signed_out", 401);
+      await env.DB.prepare(
+        "UPDATE memberships SET deleted = 1, updated_at = ? WHERE group_id = ? AND player_id = ?")
+        .bind(Date.now(), group.id, session.player_id).run();
+      return json({ ok: true });
+    }
 
     /* Claim a name with a PIN — either one already in the group, or a new one. */
     if (url.pathname === "/api/claim" && request.method === "POST") {
@@ -243,27 +399,32 @@ export default {
             .bind(String(name || "").trim()).first();
       if (row && row.pin_hash) return bad("already_claimed", 409);
 
-      /* Whoever claims first runs the group; they can pass it on later. */
-      const anyAdmin = await env.DB.prepare(
-        "SELECT 1 AS x FROM players WHERE is_admin = 1 AND deleted = 0 LIMIT 1").first();
-      const firstClaim = !anyAdmin;
-
       const salt = randomToken(16);
       const hash = await hashPin(pin, salt);
       if (row) {
-        await env.DB.prepare("UPDATE players SET pin_hash = ?, pin_salt = ?, is_admin = ?, updated_at = ? WHERE id = ?")
-          .bind(hash, salt, firstClaim ? 1 : 0, now, row.id).run();
+        await env.DB.prepare("UPDATE players SET pin_hash = ?, pin_salt = ?, updated_at = ? WHERE id = ?")
+          .bind(hash, salt, now, row.id).run();
       } else {
         const clean = String(name || "").trim().slice(0, 80);
         if (!clean) return bad("name_required");
         row = { id: "p_" + randomToken(9) };
         await env.DB.prepare(
-          "INSERT INTO players (id, name, pin_hash, pin_salt, body, updated_at, deleted, is_admin) VALUES (?,?,?,?,?,?,0,?)")
-          .bind(row.id, clean, hash, salt, JSON.stringify({ startHi: null, createdAt: now }), now, firstClaim ? 1 : 0).run();
+          "INSERT INTO players (id, name, pin_hash, pin_salt, body, updated_at, deleted) VALUES (?,?,?,?,?,?,0)")
+          .bind(row.id, clean, hash, salt, JSON.stringify({ startHi: null, createdAt: now }), now).run();
       }
+      /* Whoever arrives first in a group runs it, and can pass it on later. */
+      const anyAdmin = await env.DB.prepare(
+        "SELECT 1 AS x FROM memberships WHERE group_id = ? AND is_admin = 1 AND deleted = 0 LIMIT 1")
+        .bind(group.id).first();
       const token = randomToken(32);
-      await env.DB.prepare("INSERT INTO sessions (token, player_id, created_at) VALUES (?,?,?)")
-        .bind(token, row.id, now).run();
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO sessions (token, player_id, created_at) VALUES (?,?,?)")
+          .bind(token, row.id, now),
+        env.DB.prepare(
+          "INSERT INTO memberships (id, group_id, player_id, is_admin, updated_at, deleted) VALUES (?,?,?,?,?,0) " +
+          "ON CONFLICT(id) DO UPDATE SET deleted = 0, updated_at = excluded.updated_at")
+          .bind(group.id + "|" + row.id, group.id, row.id, anyAdmin ? 0 : 1, now)
+      ]);
       return json({ token, playerId: row.id });
     }
 
@@ -309,7 +470,7 @@ export default {
     if (url.pathname.startsWith("/api/admin/")) {
       const session = await sessionOf(request, env);
       if (!session) return bad("signed_out", 401);
-      if (!session.is_admin) return bad("not_admin", 403);
+      if (!(await isGroupAdmin(env, group.id, session.player_id))) return bad("not_admin", 403);
       const { playerId } = await request.json().catch(() => ({}));
       const now = Date.now();
 
@@ -317,12 +478,11 @@ export default {
       if (url.pathname === "/api/admin/remove-player") {
         if (!playerId) return bad("player_required");
         if (playerId === session.player_id) return bad("cannot_remove_yourself", 409);
-        await env.DB.batch([
-          env.DB.prepare("UPDATE players SET deleted = 1, updated_at = ? WHERE id = ?").bind(now, playerId),
-          env.DB.prepare("UPDATE rounds SET deleted = 1, updated_at = ? WHERE player_id = ?").bind(now, playerId),
-          env.DB.prepare("UPDATE comments SET deleted = 1, updated_at = ? WHERE player_id = ?").bind(now, playerId),
-          env.DB.prepare("DELETE FROM sessions WHERE player_id = ?").bind(playerId)
-        ]);
+        /* They leave this group; their identity and rounds are their own and
+           survive, because they may well be in somebody else's group too. */
+        await env.DB.prepare(
+          "UPDATE memberships SET deleted = 1, updated_at = ? WHERE group_id = ? AND player_id = ?")
+          .bind(now, group.id, playerId).run();
         return json({ ok: true });
       }
 
@@ -343,12 +503,13 @@ export default {
         if (!playerId) return bad("player_required");
         if (playerId === session.player_id && makeAdmin === false) {
           const others = await env.DB.prepare(
-            "SELECT 1 AS x FROM players WHERE is_admin = 1 AND deleted = 0 AND id != ? LIMIT 1")
-            .bind(session.player_id).first();
+            "SELECT 1 AS x FROM memberships WHERE group_id = ? AND is_admin = 1 AND deleted = 0 AND player_id != ? LIMIT 1")
+            .bind(group.id, session.player_id).first();
           if (!others) return bad("group_needs_an_admin", 409);
         }
-        await env.DB.prepare("UPDATE players SET is_admin = ?, updated_at = ? WHERE id = ?")
-          .bind(makeAdmin === false ? 0 : 1, now, playerId).run();
+        await env.DB.prepare(
+          "UPDATE memberships SET is_admin = ?, updated_at = ? WHERE group_id = ? AND player_id = ?")
+          .bind(makeAdmin === false ? 0 : 1, now, group.id, playerId).run();
         return json({ ok: true });
       }
       return bad("not_found", 404);
@@ -361,15 +522,15 @@ export default {
     }
 
     if (url.pathname === "/api/state" && request.method === "GET") {
-      return json(await readState(env, url.searchParams.get("since")));
+      return json(await readState(env, url.searchParams.get("since"), group));
     }
 
     if (url.pathname === "/api/sync" && request.method === "POST") {
       const payload = await request.json().catch(() => null);
       if (!payload || typeof payload !== "object") return bad("not_json");
       const session = await sessionOf(request, env);
-      const result = await applyWrites(env, payload, session);
-      const state = await readState(env, payload.since);
+      const result = await applyWrites(env, payload, session, group);
+      const state = await readState(env, payload.since, group);
       return json(Object.assign(state, result, { signedInAs: session ? session.player_id : null }));
     }
 

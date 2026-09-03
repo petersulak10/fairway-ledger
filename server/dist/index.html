@@ -484,6 +484,7 @@ table.tbl tr.clickable { cursor: pointer; }
     <nav class="nav" id="nav"></nav>
     <div class="rail-foot">
       <a class="btn primary" href="#/play">Start a round</a>
+      <div id="whichgroup"></div>
       <div id="whoami"></div>
     </div>
   </aside>
@@ -22091,6 +22092,7 @@ const iAmAdmin = () => {
   const me = signedInAs() ? playerById(signedInAs()) : null;
   return !!(me && me.admin);
 };
+const roundById = (id) => S.rounds.find(r => r.id === id && !r.deleted) || null;
 const photosFor = (roundId) =>
   sortBy((S.photos || []).filter(x => x.roundId === roundId && !x.deleted), x => x.updatedAt || 0);
 const commentsFor = (roundId) =>
@@ -22135,6 +22137,7 @@ async function syncNow(quiet) {
     if (res.status === 401) { LOCAL.joinCode = ""; saveDevice(); render(); return; }
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
+    if (data.group) LOCAL.group = data.group;
     if (Array.isArray(data.refused) && data.refused.length) {
       toast("Some of that belongs to another player's card and was not saved.");
     }
@@ -22159,6 +22162,44 @@ function schedulePush() {
 }
 const push = () => syncNow(true);
 
+/* ---------- groups ------------------------------------------------------
+   A player is one identity with one handicap and one set of rounds. A group
+   is a circle of people who see each other, and you can be in several. The
+   device caches one group at a time, so switching reloads.
+----------------------------------------------------------------------- */
+const currentGroup = () => LOCAL.group || null;
+
+/* Codes get read aloud and typed on phones, so no 0/O, 1/l, or rude words. */
+const CODE_WORDS = ["birdie","eagle","fairway","bunker","putter","wedge","links","albatross",
+                    "divot","caddie","tee","green","driver","approach","pin","bogey"];
+function freshCode() {
+  const w = CODE_WORDS[Math.floor(Math.random() * CODE_WORDS.length)];
+  return w + String(Math.floor(Math.random() * 90) + 10);
+}
+const myGroups = () => LOCAL.groups || [];
+
+async function loadMyGroups() {
+  if (!syncOn() || !LOCAL.token) { LOCAL.groups = []; return; }
+  try {
+    const res = await fetch(API + "/groups", { headers: apiHeaders() });
+    const d = await res.json();
+    LOCAL.groups = d.groups || [];
+    saveDevice();
+  } catch (e) { /* keep whatever we had */ }
+}
+
+/** Moving to another group empties the cache — it holds one group at a time. */
+async function switchGroup(code) {
+  LOCAL.joinCode = String(code || "").trim();
+  LOCAL.syncedAt = 0;
+  S.players = []; S.rounds = []; S.comments = []; S.photos = [];
+  LOCAL.draft = null;
+  saveLocal(); saveDevice();
+  await refreshAll();
+  await loadMyGroups();
+  render();
+}
+
 /** Take the group's view wholesale without sending anything back.
  *  Pushing here would resurrect whatever this device still holds — which is
  *  exactly how an admin's removal used to undo itself. */
@@ -22167,6 +22208,7 @@ async function refreshAll() {
   if (!res.ok) throw new Error("HTTP " + res.status);
   const data = await res.json();
   mergeState(data);
+  if (data.group) LOCAL.group = data.group;
   LOCAL.syncedAt = data.now || now();
   LOCAL.lastPull = now();
   saveLocal(); saveDevice(); render();
@@ -22253,7 +22295,7 @@ function renderNav() {
   const r2 = route();
   $("#mobilehead").innerHTML =
     '<a href="#/" class="mh-brand"><span class="brand-mark">Fairway Ledger</span></a>' +
-    '<div class="mh-actions">' + identityBar() +
+    '<div class="mh-actions">' + groupBar() + identityBar() +
     ["/courses", "/settings"].map(path => {
       const x = ROUTES.find(y => y.path === path);
       return '<a href="#' + path + '" class="mh-btn' + (r2.top === path ? " on" : "") + '" ' +
@@ -22261,6 +22303,21 @@ function renderNav() {
     }).join("") + '</div>';
 
   $("#whoami").innerHTML = identityBar();
+  $("#whichgroup").innerHTML = groupBar();
+}
+
+/** Which circle of players this device is looking at. */
+function groupBar() {
+  if (!hasBackend()) return "";
+  const g = currentGroup();
+  const others = myGroups().filter(x => x.code !== joinCode()).length;
+  if (!syncOn())
+    return '<button class="grp grp-none" data-act="group-menu">Join a group</button>';
+  return '<button class="grp" data-act="group-menu">' +
+    '<span class="grp-mark">' + ICONS.people + '</span>' +
+    '<span class="grp-name">' + esc(g ? g.name : "Group") + '</span>' +
+    (others ? '<span class="grp-more">+' + others + '</span>' : '') +
+    '</button>';
 }
 
 /** Who this device is, and whether it has proved it. */
@@ -22418,7 +22475,8 @@ function viewHome() {
 
   const board = sortBy(S.players.map(p => ({ p, s: playerStats(p.id) })).filter(x => x.s.index != null), x => x.s.index).slice(0, 5);
 
-  return '<div class="page-head"><div>' +
+  return groupPanel() +
+    '<div class="page-head"><div>' +
     '<h1 class="page-title">Good ' + partOfDay() + ', ' + esc(me.name.split(" ")[0]) + '</h1>' +
     '<p class="page-sub">' + (st.rounds ? plural(st.rounds, "round") + " logged · " + plural(st.holesPlayed, "hole") + " played" : "No rounds yet — the ledger starts with your first card.") + '</p>' +
     '</div><a class="btn primary" href="#/play">Start a round</a></div>' +
@@ -22453,6 +22511,36 @@ function viewHome() {
       tile("Putts per round", st.avgPutts == null ? "—" : (Math.round(st.avgPutts * 10) / 10).toFixed(1), "complete cards") +
     '</div>' +
 
+    (() => {
+      const feed = groupFeed(7), ins = groupInsights();
+      if (!feed.length && !ins.length) return "";
+      return '<div class="grid g2" style="margin-top:14px;align-items:start">' +
+        '<div class="card">' +
+          '<div class="card-pad"><h2 class="sect-title">What is new' +
+            (currentGroup() ? " in " + esc(currentGroup().name) : "") + '</h2></div>' +
+          (feed.length
+            ? '<div class="feed">' + feed.map(f =>
+                '<button class="feed-row" data-go="' + f.go + '">' +
+                  avatar(f.player) +
+                  '<span class="feed-text">' + f.text +
+                    '<span class="tiny muted">' + esc(whenWord(f.date)) + '</span></span>' +
+                '</button>').join("") + '</div>'
+            : '<div class="empty"><span class="small">Quiet lately. Post a card and it shows up here.</span></div>') +
+        '</div>' +
+        '<div class="card">' +
+          '<div class="card-pad"><h2 class="sect-title">Worth knowing</h2></div>' +
+          (ins.length
+            ? '<div class="feed">' + ins.map(i =>
+                '<button class="feed-row insight" data-go="' + i.go + '">' +
+                  '<span class="feed-text"><span class="label">' + esc(i.label) + '</span>' +
+                    '<b>' + esc(i.value) + '</b>' +
+                    '<span class="tiny muted">' + esc(i.sub) + '</span></span>' +
+                '</button>').join("") + '</div>'
+            : '<div class="empty"><span class="small">A few more rounds and the patterns start showing.</span></div>') +
+        '</div>' +
+      '</div>';
+    })() +
+
     '<div class="grid g2" style="margin-top:14px;align-items:start">' +
       '<div class="card">' +
         '<div class="card-pad spread"><h2 class="sect-title">Latest rounds</h2><a class="btn ghost sm" href="#/rounds">All rounds</a></div>' +
@@ -22472,6 +22560,140 @@ function viewHome() {
       '</div>' +
     '</div>';
 }
+/* ---------- what the group has been up to ------------------------------
+   Everything below reads the rounds already in the ledger. Nothing is stored
+   for it, so it is right the moment a card goes in and it never goes stale.
+---------------------------------------------------------------------- */
+const DAY = 86400000;
+function daysAgo(iso) { return Math.floor((Date.now() - new Date(iso + "T12:00:00").getTime()) / DAY); }
+function whenWord(iso) {
+  const d = daysAgo(iso);
+  if (d <= 0) return "today";
+  if (d === 1) return "yesterday";
+  if (d < 7) return d + " days ago";
+  if (d < 14) return "last week";
+  if (d < 60) return Math.round(d / 7) + " weeks ago";
+  return fmtDateShort(iso);
+}
+
+/** The group's recent news, newest first: cards posted, talk, and pictures. */
+function groupFeed(limit) {
+  const items = [];
+  const rounds = liveRounds().filter(r => daysAgo(r.date) <= 45);
+
+  rounds.forEach(r => {
+    const a = analyse(r);
+    if (!a) return;
+    const p = playerById(r.playerId);
+    if (!p) return;
+    const score = a.gross == null ? "a card"
+      : a.gross + " (" + relToPar(a.toPar) + ")" + (a.points ? " · " + a.points + " pts" : "");
+    items.push({
+      at: r.createdAt || new Date(r.date).getTime(), date: r.date, kind: "round", player: p,
+      text: '<b>' + esc(p.name) + '</b> played ' + esc(a.course.club) + ' — ' + score,
+      go: "/rounds/" + r.id
+    });
+  });
+
+  (S.comments || []).filter(c => !c.deleted).forEach(c => {
+    const r = roundById(c.roundId);
+    const p = playerById(c.playerId);
+    if (!r || !p || daysAgo(r.date) > 45) return;
+    const on = playerById(r.playerId);
+    items.push({
+      at: c.updatedAt || 0, date: r.date, kind: "chat", player: p,
+      text: '<b>' + esc(p.name) + '</b> on ' + esc(on ? on.name + "'s" : "a") + ' round: “' +
+            esc(String(c.body || "").slice(0, 70)) + (String(c.body || "").length > 70 ? "…" : "") + '”',
+      go: "/rounds/" + r.id
+    });
+  });
+
+  (S.photos || []).filter(x => !x.deleted).forEach(x => {
+    const r = roundById(x.roundId);
+    const p = playerById(x.playerId);
+    if (!r || !p || daysAgo(r.date) > 45) return;
+    items.push({
+      at: x.updatedAt || 0, date: r.date, kind: "shot", player: p,
+      text: '<b>' + esc(p.name) + '</b> added a picture from ' + esc((courseById(r.courseId) || {}).club || "the round"),
+      go: "/rounds/" + r.id
+    });
+  });
+
+  return sortBy(items, x => x.at, "desc").slice(0, limit || 8);
+}
+
+/** A handful of things worth knowing, each one earned from the cards. */
+function groupInsights() {
+  const out = [];
+  const rounds = liveRounds().map(analyse).filter(Boolean);
+  if (!rounds.length) return out;
+  const recent = rounds.filter(a => daysAgo(a.round.date) <= 60);
+
+  /* who is playing */
+  const counts = {};
+  recent.forEach(a => { counts[a.round.playerId] = (counts[a.round.playerId] || 0) + 1; });
+  const busiest = Object.keys(counts).sort((x, y) => counts[y] - counts[x])[0];
+  if (busiest && counts[busiest] > 1)
+    out.push({ label: "Out the most", value: (playerById(busiest) || {}).name || "—",
+               sub: plural(counts[busiest], "round") + " in the last two months", go: "/players/" + busiest });
+
+  /* the card everyone is chasing */
+  const best = sortBy(recent.filter(a => a.points), a => a.points, "desc")[0];
+  if (best)
+    out.push({ label: "Round of the moment", value: best.points + " pts",
+               sub: (playerById(best.round.playerId) || {}).name + " at " + best.course.club + ", " + whenWord(best.round.date),
+               go: "/rounds/" + best.round.id });
+
+  /* form: last three against the three before */
+  let mover = null;
+  S.players.filter(p => !p.deleted).forEach(p => {
+    const mine = sortBy(rounds.filter(a => a.round.playerId === p.id && a.toPar != null),
+                        a => a.round.date, "desc");
+    if (mine.length < 6) return;
+    const now = mine.slice(0, 3).reduce((t, a) => t + a.toPar, 0) / 3;
+    const was = mine.slice(3, 6).reduce((t, a) => t + a.toPar, 0) / 3;
+    const gain = was - now;
+    if (!mover || gain > mover.gain) mover = { p: p, gain: gain };
+  });
+  if (mover && mover.gain > 0.4)
+    out.push({ label: "Best run of form", value: mover.p.name,
+               sub: (Math.round(mover.gain * 10) / 10) + " shots better across the last three",
+               go: "/players/" + mover.p.id });
+
+  /* where the group keeps going back */
+  const byCourse = {};
+  recent.forEach(a => { byCourse[a.course.id] = (byCourse[a.course.id] || 0) + 1; });
+  const fav = Object.keys(byCourse).sort((x, y) => byCourse[y] - byCourse[x])[0];
+  if (fav && byCourse[fav] > 1) {
+    const c = courseById(fav);
+    out.push({ label: "Home from home", value: c ? c.club : "—",
+               sub: plural(byCourse[fav], "round") + " there lately", go: "/courses/" + fav });
+  }
+
+  return out.slice(0, 4);
+}
+
+function groupPanel() {
+  const g = currentGroup();
+  if (!syncOn() || !g) return "";
+  const live = S.players.filter(p => !p.deleted).length;
+  return '<div class="card card-pad grp-panel">' +
+    '<div class="grp-panel-main">' +
+      '<span class="label">Your group</span>' +
+      '<h2 class="grp-panel-name">' + esc(g.name) + '</h2>' +
+      '<span class="small muted">' + plural(live, "player") + ' · ' +
+        plural(liveRounds().length, "round") + ' in the book</span>' +
+    '</div>' +
+    '<div class="grp-panel-code">' +
+      '<span class="label">Invite code</span>' +
+      '<button class="code-copy" data-act="copy-code" data-code="' + esc(g.code) + '">' +
+        esc(g.code) + '</button>' +
+      '<span class="tiny muted">Tap to copy</span>' +
+    '</div>' +
+    '<button class="btn sm" data-act="group-menu">Switch group</button>' +
+  '</div>';
+}
+
 function tile(label, n, sub) {
   return '<div class="card tile"><span class="label">' + esc(label) + '</span><span class="n">' + n + '</span><span class="sub">' + esc(sub) + '</span></div>';
 }
@@ -23422,18 +23644,31 @@ function viewSettings() {
     '</div>' +
 
     '<div class="card card-pad stack">' +
-      '<h2 class="sect-title">The group</h2>' +
+      '<h2 class="sect-title">Your groups</h2>' +
       (!hasBackend()
         ? '<div class="notice"><span>' + ICONS.flag + '</span><span>This copy of the app keeps your rounds on this device only. For the shared scoreboard, open the app at <a href="https://fairwayledger-1o6.pages.dev/" target="_blank" rel="noopener">fairwayledger</a>.</span></div>'
         : syncOn()
           ? '<div class="stack-sm">' +
-            '<div class="notice info"><span>' + ICONS.info + '</span><span>You are in the group. Everyone here sees the same players and rounds — nothing to send round, nothing to join.</span></div>' +
+            '<div class="notice info"><span>' + ICONS.info + '</span><span>You are in <b>' +
+              esc((currentGroup() || {}).name || "the group") + '</b>. Everyone in it sees the same players and rounds. ' +
+              'You can be in as many groups as you like — your handicap and your rounds follow you into all of them.</span></div>' +
+            (myGroups().length > 1
+              ? '<div class="grp-list">' + myGroups().map(g =>
+                  '<button class="grp-row' + (g.code === joinCode() ? " on" : "") + '" data-act="go-group" data-code="' + esc(g.code) + '">' +
+                    '<span class="grp-row-main"><b>' + esc(g.name) + '</b>' +
+                    '<span class="tiny muted">' + (g.admin ? "You run this one" : "Member") + '</span></span>' +
+                    (g.code === joinCode() ? '<span class="grp-here">Here now</span>' : '<span class="tiny muted">Switch</span>') +
+                  '</button>').join("") + '</div>'
+              : '') +
             '<div class="row"><button class="btn sm" data-act="sync-now">Check for new rounds</button>' +
-            '<button class="btn sm danger" data-act="leave-group">Leave on this device</button></div>' +
+            '<button class="btn sm" data-act="make-group">Make another group</button>' +
+            '<button class="btn sm" data-act="join-group">Join another</button>' +
+            '<button class="btn sm danger" data-act="leave-group">Leave this group</button></div>' +
             '<p class="help">Last updated ' + (LOCAL.lastPull ? new Date(LOCAL.lastPull).toLocaleTimeString() : "not yet") +
             '. Your rounds are also kept on this device, so you can score a round with no signal and it catches up afterwards.</p></div>'
-          : '<div class="stack-sm"><p class="small muted">Enter the group code to join the shared scoreboard.</p>' +
-            '<div class="row"><button class="btn primary" data-act="ask-code">Enter the group code</button></div></div>') +
+          : '<div class="stack-sm"><p class="small muted">Start a group for the people you play with, or join one with a code.</p>' +
+            '<div class="row"><button class="btn primary" data-act="make-group">Start a group</button>' +
+            '<button class="btn" data-act="join-group">Join with a code</button></div></div>') +
     '</div>' +
 
     '<div class="card card-pad stack">' +
@@ -23718,6 +23953,20 @@ function claimModal(player) {
       (isNew ? 'Add' : 'Make it mine') + '</button>');
 }
 
+/** First run: you either have a code from a friend, or you are starting one. */
+function firstRunGroup() {
+  openModal("Get your group going",
+    '<p class="small">Fairway Ledger keeps one scoreboard for a group of players. ' +
+    'Start a group for the people you play with, or join one someone has already set up.</p>' +
+    '<div class="stack-sm" style="margin-top:12px">' +
+      '<button class="grp-row" data-act="make-group"><span class="grp-row-main">' +
+        '<b>Start a group</b><span class="tiny muted">You get a code to send round</span></span></button>' +
+      '<button class="grp-row" data-act="join-group"><span class="grp-row-main">' +
+        '<b>Join with a code</b><span class="tiny muted">Someone sent you one</span></span></button>' +
+    '</div>',
+    '<button class="btn ghost" data-close="1">Just keep score on this device</button>');
+}
+
 function askForCode() {
   openModal("Join your group",
     '<p class="small">Fairway Ledger keeps one scoreboard for the whole group. Enter the code your group uses and this device joins it — you will not be asked again.</p>' +
@@ -23743,8 +23992,186 @@ function pickMeModal() {
     '<button class="btn" data-act="add-player">Add someone new</button><button class="btn primary" data-close="1">Done</button>');
 }
 
+/* ---------- groups: the menu, and making or joining one ---------- */
+function groupMenu() {
+  const mine = myGroups();
+  const here = joinCode();
+  const rows = mine.map(g =>
+    '<button class="grp-row' + (g.code === here ? " on" : "") + '" data-act="go-group" data-code="' + esc(g.code) + '">' +
+      '<span class="grp-row-main"><b>' + esc(g.name) + '</b>' +
+      '<span class="tiny muted">' + (g.admin ? "You run this one" : "Member") + '</span></span>' +
+      (g.code === here ? '<span class="grp-here">Here now</span>' : '<span class="tiny muted">Switch</span>') +
+    '</button>').join("");
+
+  openModal("Your groups",
+    (mine.length ? '<div class="grp-list">' + rows + '</div>'
+      : '<p class="small muted">' + (syncOn()
+          ? "You are in this group on this device. Sign in with your PIN to carry your groups between devices."
+          : "You are not in a group yet. Make one for your regular fourball, or join one with the code a friend sends you.") + '</p>') +
+    (syncOn() && currentGroup()
+      ? '<div class="code-share"><span class="label">Code for ' + esc(currentGroup().name) + '</span>' +
+        '<code class="code-big">' + esc(currentGroup().code) + '</code>' +
+        '<p class="help">Send this to anyone you want in. They enter it once and they are in.</p></div>'
+      : ''),
+    (runsThisGroup() ? '<button class="btn ghost" data-act="rename-group">Rename</button>' : '') +
+    '<button class="btn" data-act="join-group">Join with a code</button>' +
+    '<button class="btn primary" data-act="make-group">Make a group</button>');
+}
+
+/** Whether this device runs the group it is looking at. */
+function runsThisGroup() {
+  const here = myGroups().find(g => g.code === joinCode());
+  return here ? !!here.admin : iAmAdmin();
+}
+
+function renameGroupModal() {
+  const g = currentGroup();
+  if (!g) return;
+  openModal("Rename the group",
+    '<div class="stack-sm">' +
+      '<label class="field"><span class="label">Name</span>' +
+      '<input id="rg-name" value="' + esc(g.name) + '" maxlength="60"></label>' +
+      '<label class="field"><span class="label">Invite code</span>' +
+      '<input id="rg-code" value="' + esc(g.code) + '" autocapitalize="off" spellcheck="false"></label>' +
+      '<p class="help">Change the code and the old one stops working, so anyone still joining will need the new one.</p>' +
+      '<p class="small" id="rg-note" style="color:var(--bad)"></p>' +
+    '</div>',
+    '<button class="btn" data-close="1">Cancel</button>' +
+    '<button class="btn primary" data-act="do-rename-group">Save</button>');
+}
+
+function makeGroupModal() {
+  const needsName = !syncOn() || !LOCAL.token;
+  openModal("Make a group",
+    '<div class="stack-sm">' +
+      '<label class="field"><span class="label">What is it called?</span>' +
+      '<input id="ng-name" placeholder="Saturday fourball" maxlength="60"></label>' +
+      (needsName
+        ? '<label class="field"><span class="label">Your name</span>' +
+          '<input id="ng-player" placeholder="Peter" maxlength="60"></label>' +
+          '<label class="field"><span class="label">Pick a PIN</span>' +
+          '<input id="ng-pin" type="password" inputmode="numeric" maxlength="8" placeholder="4 digits or more"></label>' +
+          '<p class="help">The PIN keeps your card yours. Anyone with the group code can see the scores; only you can change your own.</p>'
+        : '<p class="help">You will run this group, so you can add and remove players in it. Your other groups carry on unchanged.</p>') +
+      '<p class="small" id="ng-note" style="color:var(--bad)"></p>' +
+    '</div>',
+    '<button class="btn" data-close="1">Cancel</button>' +
+    '<button class="btn primary" data-act="do-make-group">Make it</button>');
+}
+
+function joinGroupModal() {
+  openModal("Join a group",
+    '<div class="stack-sm">' +
+      '<label class="field"><span class="label">Group code</span>' +
+      '<input id="jg-code" placeholder="the code a friend sent you" autocapitalize="off" spellcheck="false"></label>' +
+      '<p class="help">' + (LOCAL.token
+        ? "You stay in your current groups — this adds another."
+        : "Sign in with your PIN first if you want to be in several groups at once.") + '</p>' +
+      '<p class="small" id="jg-note" style="color:var(--bad)"></p>' +
+    '</div>',
+    '<button class="btn" data-close="1">Cancel</button>' +
+    '<button class="btn primary" data-act="do-join-group">Join</button>');
+}
+
 /* ---------- actions ---------- */
 const ACTIONS = {
+  "group-menu": () => { loadMyGroups().then(() => { if ($(".modal")) groupMenu(); }); groupMenu(); },
+  "make-group": () => makeGroupModal(),
+  "rename-group": () => renameGroupModal(),
+  "do-rename-group": async (el) => {
+    const name = (($("#rg-name") || {}).value || "").trim();
+    const code = (($("#rg-code") || {}).value || "").trim();
+    const note = $("#rg-note");
+    if (!name) { if (note) note.textContent = "The group needs a name."; return; }
+    el.disabled = true; el.textContent = "Saving…";
+    try {
+      const res = await fetch(API + "/group/rename", {
+        method: "POST", headers: apiHeaders(), body: JSON.stringify({ name: name, code: code })
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "failed");
+      closeModal();
+      if (d.code !== joinCode()) { await switchGroup(d.code); }
+      else { LOCAL.group = Object.assign({}, LOCAL.group, { name: d.name }); saveDevice(); await loadMyGroups(); render(); }
+      toast("Saved");
+    } catch (err) {
+      el.disabled = false; el.textContent = "Save";
+      if (note) note.textContent =
+        err.message === "code_taken" ? "Another group already uses that code."
+        : err.message === "code_too_short" ? "Make the code at least four characters."
+        : err.message === "not_admin" ? "Only whoever runs the group can change this."
+        : "Could not save just now — check your connection.";
+    }
+  },
+  "join-group": () => joinGroupModal(),
+  "go-group": async (el) => {
+    if (el.dataset.code === joinCode()) { closeModal(); return; }
+    closeModal(); toast("Switching…");
+    await switchGroup(el.dataset.code);
+    toast("Now in " + ((currentGroup() || {}).name || "the group"));
+  },
+
+  "do-make-group": async (el) => {
+    const name = (($("#ng-name") || {}).value || "").trim();
+    const note = $("#ng-note");
+    if (!name) { if (note) note.textContent = "Give the group a name."; return; }
+    const body = { name: name, code: freshCode() };
+    if (!syncOn() || !LOCAL.token) {
+      body.playerName = (($("#ng-player") || {}).value || "").trim();
+      body.pin = ($("#ng-pin") || {}).value || "";
+      if (!body.playerName) { if (note) note.textContent = "We need your name too."; return; }
+      if (body.pin.length < 4) { if (note) note.textContent = "Make the PIN at least four digits."; return; }
+    }
+    el.disabled = true; el.textContent = "Making it…";
+    try {
+      const res = await fetch(API + "/group/create", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-join-code": joinCode(),
+                   "x-player-token": LOCAL.token || "" },
+        body: JSON.stringify(body)
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "failed");
+      if (d.token) { LOCAL.token = d.token; LOCAL.me = d.playerId; }
+      closeModal();
+      await switchGroup(d.code);
+      toast(d.name + " is ready — share the code");
+      groupMenu();
+    } catch (err) {
+      el.disabled = false; el.textContent = "Make it";
+      if (note) note.textContent = err.message === "name_taken"
+        ? "Somebody already plays under that name. Try another."
+        : "Could not make the group just now — check your connection.";
+    }
+  },
+
+  "do-join-group": async (el) => {
+    const code = (($("#jg-code") || {}).value || "").trim();
+    const note = $("#jg-note");
+    if (!code) { if (note) note.textContent = "Enter the code."; return; }
+    el.disabled = true; el.textContent = "Joining…";
+    try {
+      if (LOCAL.token) {
+        const res = await fetch(API + "/group/join", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-join-code": code,
+                     "x-player-token": LOCAL.token }
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || "failed");
+      } else if (!(await tryJoinCode(code))) {
+        throw new Error("no_group");
+      }
+      closeModal();
+      await switchGroup(code);
+      toast("You are in " + ((currentGroup() || {}).name || "the group"));
+    } catch (err) {
+      el.disabled = false; el.textContent = "Join";
+      if (note) note.textContent = err.message === "no_group" || err.message === "no_group_code"
+        ? "That code does not match. Check it with whoever set the group up."
+        : "Could not join just now — check your connection.";
+    }
+  },
   "pick-me": () => pickMeModal(),
   "claim-me": (el) => { const p = playerById(el.dataset.id); if (p) claimModal(p); },
   "sign-in-me": () => { const p = playerById(LOCAL.me); if (p) signInModal(p); else pickMeModal(); },
@@ -23770,7 +24197,7 @@ const ACTIONS = {
     try {
       const d = await apiPost("/signin", { playerId: el.dataset.id, pin });
       LOCAL.token = d.token; LOCAL.me = d.playerId; saveDevice();
-      closeModal(); await syncNow(true); render();
+      closeModal(); await syncNow(true); await loadMyGroups(); render();
       toast("Signed in as " + (playerById(d.playerId) || {}).name);
     } catch (e) {
       el.disabled = false; el.textContent = "Sign in";
@@ -24156,10 +24583,17 @@ const ACTIONS = {
   },
 
   /* the group */
-  "ask-code": () => askForCode(),
-  "leave-group": () => {
-    if (!confirm("Leave the group on this device? Your rounds stay here, but they stop syncing with everyone else.")) return;
-    LOCAL.joinCode = ""; saveDevice(); render();
+  "ask-code": () => firstRunGroup(),
+  "leave-group": async () => {
+    const g = currentGroup();
+    const rest = myGroups().filter(x => x.code !== joinCode());
+    if (!confirm("Leave " + ((g && g.name) || "the group") + "? The others stop seeing your rounds here. " +
+                 "Your own cards and handicap stay with you.")) return;
+    if (LOCAL.token) await fetch(API + "/group/leave", { method: "POST", headers: apiHeaders() }).catch(() => {});
+    if (rest.length) { await switchGroup(rest[0].code); toast("Now in " + rest[0].name); return; }
+    LOCAL.joinCode = ""; LOCAL.group = null; LOCAL.groups = [];
+    saveDevice(); render();
+    toast("You have left the group");
   },
   "save-code": async (el) => {
     const code = ($("#jc-code") || {}).value || "";
@@ -24185,6 +24619,13 @@ const ACTIONS = {
     }
   },
   "sync-now": () => syncNow(),
+  "copy-code": (el) => {
+    const code = el.dataset.code || "";
+    const done = () => toast("Code copied — send it to whoever you want in");
+    if (navigator.clipboard && navigator.clipboard.writeText)
+      navigator.clipboard.writeText(code).then(done, () => toast("The code is " + code));
+    else toast("The code is " + code);
+  },
   "select-all": (el) => el.select(),
 
   /* danger */
@@ -24323,12 +24764,13 @@ render();
 if (handedOver > 0) toast("Brought " + handedOver + " of your records across");
 if (syncOn()) {
   syncNow(true);
+  loadMyGroups().then(render);
   setInterval(() => syncNow(true), 25000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) syncNow(true); });
   window.addEventListener("online", () => syncNow(true));
 } else if (hasBackend()) {
-  /* first visit: one question, then never again on this device */
-  setTimeout(askForCode, 400);
+  /* first visit: make a group or join one, then never asked again */
+  setTimeout(firstRunGroup, 400);
 }
 </script>
 
@@ -24451,6 +24893,80 @@ input[type="file"]::file-selector-button {
 }
 .who-out, .who-open { border-color: var(--accent); }
 .who-none { justify-content: center; color: var(--muted); }
+
+/* which circle of players you are looking at */
+.grp {
+  display: flex; align-items: center; gap: 7px; width: 100%; margin-bottom: 6px;
+  padding: 6px 9px; border-radius: var(--radius-sm); cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--muted);
+  font: inherit; font-size: 12.5px; font-weight: 700; text-align: left;
+}
+.grp:hover { color: var(--ink); border-color: var(--accent); }
+.grp-mark { display: inline-flex; opacity: .7; flex: none; }
+.grp-mark svg { width: 14px; height: 14px; }
+.grp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grp-more {
+  margin-left: auto; flex: none; padding: 1px 6px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line); font-size: 11px;
+}
+.grp-none { justify-content: center; border-style: dashed; }
+.grp-list { display: flex; flex-direction: column; gap: 6px; }
+.grp-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 10px 12px; border-radius: var(--radius-sm); cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit;
+}
+.grp-row:hover { background: var(--surface-2); }
+.grp-row.on { border-color: var(--accent); }
+.grp-row-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.grp-here {
+  margin-left: auto; flex: none; padding: 2px 8px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700;
+}
+.grp-row .tiny.muted { margin-left: auto; flex: none; }
+.grp-row-main .tiny.muted { margin-left: 0; }
+.code-share {
+  margin-top: 14px; padding: 12px; border-radius: var(--radius-sm);
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.grp-panel {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.grp-panel-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 200px; }
+.grp-panel-name { font-size: 19px; font-weight: 800; margin: 0; letter-spacing: -.01em; }
+.grp-panel-code { display: flex; flex-direction: column; gap: 1px; flex: none; }
+.code-copy {
+  font: inherit; font-size: 16px; font-weight: 800; letter-spacing: .03em;
+  padding: 3px 10px; border-radius: var(--radius-sm); cursor: pointer;
+  border: 1px dashed var(--line); background: var(--surface-2); color: var(--ink);
+}
+.code-copy:hover { border-color: var(--accent); border-style: solid; }
+.feed { display: flex; flex-direction: column; }
+.feed-row {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left;
+  padding: 10px 16px; border: none; border-top: 1px solid var(--line);
+  background: none; color: var(--ink); font: inherit; font-size: 13.5px; cursor: pointer;
+}
+.feed-row:hover { background: var(--surface-2); }
+.feed-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; line-height: 1.35; }
+.feed-row.insight b { font-size: 16px; font-weight: 800; letter-spacing: -.01em; }
+
+@media (max-width: 560px) {
+  .grp-panel { gap: 12px; }
+  .grp-panel-code { order: 3; }
+}
+
+.code-big {
+  display: block; margin: 4px 0 2px; font-size: 20px; font-weight: 800;
+  letter-spacing: .04em; color: var(--ink);
+}
+
+@media (max-width: 860px) {
+  .mh-actions .grp { width: auto; max-width: 30vw; margin: 0; padding: 5px 8px; }
+  .mh-actions .grp-name { max-width: 16vw; }
+  .mh-actions .grp-more { margin-left: 2px; }
+}
 
 @media (max-width: 860px) {
   .mh-actions { gap: 8px; align-items: center; }
