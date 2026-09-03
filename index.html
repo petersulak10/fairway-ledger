@@ -22125,6 +22125,19 @@ function schedulePush() {
 }
 const push = () => syncNow(true);
 
+/** Take the group's view wholesale without sending anything back.
+ *  Pushing here would resurrect whatever this device still holds — which is
+ *  exactly how an admin's removal used to undo itself. */
+async function refreshAll() {
+  const res = await fetch(API + "/state?since=0", { headers: apiHeaders() });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const data = await res.json();
+  mergeState(data);
+  LOCAL.syncedAt = data.now || now();
+  LOCAL.lastPull = now();
+  saveLocal(); saveDevice(); render();
+}
+
 /** Check a join code before we commit to it. */
 async function tryJoinCode(code) {
   const res = await fetch(API + "/hello", { headers: { "x-join-code": code } });
@@ -23514,11 +23527,7 @@ const ACTIONS = {
                  " and comments go too. This affects everyone.")) return;
     try {
       await apiPost("/admin/remove-player", { playerId: p.id });
-      LOCAL.syncedAt = 0; saveDevice();
-      await syncNow(true);
-      S.players = S.players.filter(x => x.id !== p.id);
-      S.rounds = S.rounds.filter(r => r.playerId !== p.id);
-      saveLocal(); render();
+      await refreshAll();
       toast(p.name + " was removed");
     } catch (e) {
       toast(e.message === "not_admin" ? "Only the group's admin can remove players."
@@ -23533,7 +23542,7 @@ const ACTIONS = {
     if (on && !confirm("Make " + p.name + " an admin? They will be able to remove players and delete anyone's rounds.")) return;
     try {
       await apiPost("/admin/set-admin", { playerId: p.id, makeAdmin: on });
-      LOCAL.syncedAt = 0; saveDevice(); await syncNow(true); render();
+      await refreshAll();
       toast(on ? p.name + " is an admin now" : p.name + " is no longer an admin");
     } catch (e) {
       toast(e.message === "group_needs_an_admin" ? "Make somebody else an admin first."
@@ -23546,7 +23555,7 @@ const ACTIONS = {
     if (!confirm("Clear " + p.name + "'s PIN? Their card becomes unclaimed and anyone can take it over.")) return;
     try {
       await apiPost("/admin/clear-pin", { playerId: p.id });
-      LOCAL.syncedAt = 0; saveDevice(); await syncNow(true); render();
+      await refreshAll();
       toast(p.name + "'s PIN was cleared");
     } catch (e) { toast("Could not clear it just now."); }
   },
