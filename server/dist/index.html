@@ -22935,7 +22935,7 @@ function photoStrip(round) {
     (list.length
       ? '<div class="shots">' + list.map(ph =>
           '<figure class="shot"><a href="/photo/' + esc(ph.id) + '" target="_blank" rel="noopener">' +
-          '<img src="/photo/' + esc(ph.id) + '" alt="' + esc(ph.caption || "Photo from this round") + '" loading="lazy"></a>' +
+          '<img src="/photo/' + esc(ph.id) + '" alt="' + esc(ph.caption || "Photo from this round") + '" decoding="async"></a>' +
           ((me && ph.playerId === me) || iAmAdmin()
             ? '<button class="shot-x" data-act="delete-photo" data-id="' + ph.id + '" aria-label="Delete photo">×</button>' : '') +
           '</figure>').join("") + '</div>'

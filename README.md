@@ -24,7 +24,12 @@ from the repository root.
   allocated by stroke index, Stableford under net double bogey, score
   differentials, and an index from the best 8 of your last 20 rounds.
 - **A printed scorecard view** per round with birdie/bogey ring marks.
-- **Group leaderboard**, per-player index trend and score distribution.
+- **Group leaderboard** with a season window (all time / this year / last 90
+  days), a **Form** column reading your last five rounds, **head to head**
+  between any two players, and **course records**.
+- **A live game** while you score a fourball — Stableford, match play when two
+  are out, and skins with carry-overs.
+- **Comments and photos** on every round.
 - **Import** from CSV, **export** to CSV or JSON.
 
 ## How the course book works

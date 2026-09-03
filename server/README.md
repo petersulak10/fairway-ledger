@@ -59,6 +59,20 @@ Anyone signed in can comment on any round. You may delete your own; an admin may
 delete any. Comments sync like every other record and are capped at 1,000
 characters server-side.
 
+## Photos
+
+Pictures live in a KV namespace (`PHOTOS`), indexed by a `photos` table in D1.
+The browser shrinks each one to 1600px JPEG before uploading — a phone photo
+goes from megabytes to roughly 25 KB — so the free tier's 1 GB holds thousands.
+
+Serving is deliberately unauthenticated: an `<img>` tag cannot send a header,
+so a photo's own 32-character id is what protects it, exactly like the group
+link. Uploading needs both the join code and a signed-in player.
+
+R2 would be the natural home and has a bigger free tier, but it must be
+enabled in the dashboard and Cloudflare asks for a card on file. KV was
+already available, so photos need nothing switched on.
+
 ## The API
 
 | Route | Does |
@@ -72,6 +86,8 @@ characters server-side.
 | `POST /api/admin/remove-player` | admin only: remove a player, their rounds and comments |
 | `POST /api/admin/clear-pin` | admin only: release a card whose PIN was forgotten |
 | `POST /api/admin/set-admin` | admin only: promote or demote somebody |
+| `POST /api/photo?roundId=` | upload a picture (signed in); returns its id |
+| `GET /photo/:id` | the picture itself — no header, the id is the key |
 
 Writes are last-writer-wins per record: a row only moves if the incoming
 `updatedAt` is at least as new as the stored one. Deletions travel as
